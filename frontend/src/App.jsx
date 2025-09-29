@@ -7,14 +7,14 @@ import { AuthProvider } from "./context/AuthContext";
 import { ChatProvider } from "./context/ChatContext";
 
 // Import components
+import Index from "./pages/Index";
 import Login from "./components/auth/Login";
 import Register from "./components/auth/Register";
 import TwoFactorAuth from "./components/auth/TwoFactorAuth";
 import EmailOTP from "./components/auth/EmailOTP";
 import Dashboard from "./pages/Dashboard";
 import ProtectedRoute from "./components/common/ProtectedRoute";
-import NotFound from "./pages/NotFound";  
-import Index from "./pages/Index";
+import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 

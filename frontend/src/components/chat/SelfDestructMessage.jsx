@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Clock, Trash2, AlertTriangle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Button } from '../ui/button';
+import { Badge } from '../../components/ui/badge';
 
 const SelfDestructMessage = ({ 
   message, 

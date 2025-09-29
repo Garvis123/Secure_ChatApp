@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, ShieldCheck, ShieldAlert, Key, Lock, Unlock, AlertTriangle } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import { useChat } from '@/context/ChatContext';
+import { Badge } from '../../components/ui/badge';
+import { Button } from '../../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { Progress } from '../../components/ui/progress';
+import { useChat } from '../../context/ChatContext';
 
 const EncryptionStatus = ({ roomId }) => {
   const { encryptionStatus } = useChat();
