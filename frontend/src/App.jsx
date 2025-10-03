@@ -5,6 +5,7 @@ import { TooltipProvider } from "./components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "./context/AuthContext";
 import { ChatProvider } from "./context/ChatContext";
+import AuthCallback from './pages/AuthCallback';
 
 // Import components
 import Index from "./pages/Index";
@@ -14,7 +15,7 @@ import TwoFactorAuth from "./components/auth/TwoFactorAuth";
 import EmailOTP from "./components/auth/EmailOTP";
 import Dashboard from "./pages/Dashboard";
 import ProtectedRoute from "./components/common/ProtectedRoute";
-import NotFound from "./pages/NotFound";
+import ForgotPassword from "./pages/ForgetPassword";
 
 const queryClient = new QueryClient();
 
@@ -32,6 +33,8 @@ const App = () => (
               <Route path="/register" element={<Register />} />
               <Route path="/verify-email" element={<EmailOTP />} />
               <Route path="/two-factor" element={<TwoFactorAuth />} />
+              <Route path="/auth/callback" element={<AuthCallback />} />
+<Route path="/forgot-password" element={<ForgotPassword />} />
               
               {/* Protected Routes */}
               <Route path="/" element={<Index />} />
@@ -42,7 +45,7 @@ const App = () => (
               } />
               
               {/* Catch-all route */}
-              <Route path="*" element={<NotFound />} />
+              {/* <Route path="*" element={<NotFound />} /> */}
             </Routes>
           </BrowserRouter>
         </ChatProvider>

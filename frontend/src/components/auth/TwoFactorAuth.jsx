@@ -4,16 +4,21 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { useAuth } from '../../context/AuthContext';
 
 const TwoFactorAuth = () => {
   const [code, setCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const { verifyTwoFactor, error } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
-    // Handle 2FA verification
-    setTimeout(() => setIsLoading(false), 2000);
+    try {
+      await verifyTwoFactor(code);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -28,6 +33,11 @@ const TwoFactorAuth = () => {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {error && (
+              <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+                {error}
+              </div>
+            )}
             <div>
               <Label htmlFor="code">Authentication Code</Label>
               <Input

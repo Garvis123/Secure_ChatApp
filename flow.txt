@@ -1,0 +1,79 @@
+Phase 1: Authentication & User Management ✅ (SABSE PEHLE YE!)
+1. Basic Setup (Server + Client structure)
+2. User Registration (Manual + Google OAuth)
+3. Email Verification (OTP system)
+4. Login System (JWT-based)
+5. Password Reset Flow (Email OTP verification)
+6. 2FA Setup (TOTP - Google Authenticator)
+7. Session Management
+
+
+Phase 2: Real-time Communication Foundation
+1. Socket.io Setup (WebSocket connection)
+2. Basic Chat UI (Chat window, message list)
+3. Real-time Messaging (without encryption first)
+4. Online/Offline Status
+5. Typing Indicators
+
+
+Phase 3: End-to-End Encryption (E2EE)
+1. Client-side Key Generation (Public/Private keys)
+2. Key Exchange Protocol (Diffie-Hellman)
+3. Message Encryption (AES-256-GCM)
+4. Forward Secrecy Implementation (Session keys)
+5. Encryption Status Indicators
+
+
+Phase 4: Advanced Security Features
+1. Self-Destructing Messages (Timer-based deletion)
+2. File Encryption & Secure Sharing
+3. Steganography (Hide messages in images)
+4. Anti-Screenshot Detection
+5. Zero-Knowledge Proofs (Mathematical authentication)
+
+
+Phase 5: Admin & Monitoring
+1. Mathematical Anomaly Detection
+2. Audit Logs
+3. User Activity Monitoring
+4. Admin Dashboard
+
+
+
+📋 DETAILED AUTHENTICATION FLOW (Jo Tumhe Chahiye)
+1. Sign Up Flow:
+User → Register Page
+  ↓
+[Option 1: Manual Signup]
+  → Enter Email, Password, Username
+  → OTP sent to email
+  → Verify OTP
+  → Account Created ✅
+  
+[Option 2: Google OAuth]
+  → Click "Sign up with Google"
+  → Google Auth
+  → Account Created (Email auto-verified) ✅
+2. Login Flow:
+User → Login Page
+  ↓
+Enter Email + Password
+  ↓
+[If 2FA Enabled]
+  → Enter TOTP Code
+  ↓
+Login Success → JWT Token → Dashboard
+3. Password Reset Flow:
+User → "Forgot Password" Link
+  ↓
+Enter Email
+  ↓
+OTP sent to email
+  ↓
+Enter OTP (with Resend option)
+  ↓
+OTP Verified ✅
+  ↓
+Enter New Password
+  ↓
+Password Changed → Redirect to Login

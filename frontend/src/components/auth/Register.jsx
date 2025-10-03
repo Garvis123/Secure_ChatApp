@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Mail, Lock, User, Shield, Eye, EyeOff, Key } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -9,6 +9,7 @@ import { Checkbox } from '../ui/checkbox';
 import { useAuth } from '../../context/AuthContext';
 
 const Register = () => {
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     username: '',
     email: '',
@@ -19,6 +20,7 @@ const Register = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState(0);
+  const [successMessage, setSuccessMessage] = useState('');
   const { register, isLoading, error } = useAuth();
 
   const calculatePasswordStrength = (password) => {
@@ -33,6 +35,9 @@ const Register = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    // Clear previous messages
+    setSuccessMessage('');
+
     if (formData.password !== formData.confirmPassword) {
       return;
     }
@@ -41,11 +46,21 @@ const Register = () => {
       return;
     }
 
-    await register({
+    const result = await register({
       username: formData.username,
       email: formData.email,
       password: formData.password,
     });
+
+    if (result && result.success) {
+      setSuccessMessage('Account created successfully! Redirecting to login...');
+      
+      // Redirect to login after 2 seconds
+      setTimeout(() => {
+        navigate('/login');
+      }, 2000);
+    }
+    // Error is already handled by AuthContext
   };
 
   const handleChange = (e) => {
@@ -63,11 +78,11 @@ const Register = () => {
   const getStrengthColor = (strength) => {
     switch (strength) {
       case 0:
-      case 1: return 'bg-destructive';
-      case 2: return 'bg-warning';
-      case 3: return 'bg-accent';
-      case 4: return 'bg-success';
-      default: return 'bg-muted';
+      case 1: return 'bg-red-500';
+      case 2: return 'bg-yellow-500';
+      case 3: return 'bg-blue-500';
+      case 4: return 'bg-green-500';
+      default: return 'bg-gray-300';
     }
   };
 
@@ -83,33 +98,41 @@ const Register = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 cyber-grid">
+    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-gray-900 via-gray-800 to-black">
       <div className="w-full max-w-md">
-        <Card className="bg-gradient-card border-border/50 shadow-card">
+        <Card className="bg-gray-800/50 border-gray-700/50 shadow-2xl backdrop-blur-sm">
           <CardHeader className="space-y-1 text-center">
             <div className="flex items-center justify-center mb-4">
-              <div className="p-3 rounded-full bg-gradient-primary">
-                <Shield className="h-8 w-8 text-primary-foreground" />
+              <div className="p-3 rounded-full bg-gradient-to-r from-blue-500 to-purple-600">
+                <Shield className="h-8 w-8 text-white" />
               </div>
             </div>
-            <CardTitle className="text-2xl font-bold">Create Account</CardTitle>
-            <CardDescription className="text-muted-foreground">
+            <CardTitle className="text-2xl font-bold text-white">Create Account</CardTitle>
+            <CardDescription className="text-gray-400">
               Join the most secure communication platform
             </CardDescription>
           </CardHeader>
 
           <CardContent className="space-y-4">
+            {/* Success Message */}
+            {successMessage && (
+              <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 text-sm">
+                {successMessage}
+              </div>
+            )}
+
+            {/* Error Message */}
             {error && (
-              <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+              <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
                 {error}
               </div>
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="username">Username</Label>
+                <Label htmlFor="username" className="text-gray-300">Username</Label>
                 <div className="relative">
-                  <User className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <User className="absolute left-3 top-3 h-4 w-4 text-gray-500" />
                   <Input
                     id="username"
                     name="username"
@@ -117,16 +140,16 @@ const Register = () => {
                     placeholder="Choose a username"
                     value={formData.username}
                     onChange={handleChange}
-                    className="pl-10"
+                    className="pl-10 bg-gray-900/50 border-gray-700 text-white placeholder:text-gray-500"
                     required
                   />
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email" className="text-gray-300">Email</Label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-500" />
                   <Input
                     id="email"
                     name="email"
@@ -134,16 +157,16 @@ const Register = () => {
                     placeholder="Enter your email"
                     value={formData.email}
                     onChange={handleChange}
-                    className="pl-10"
+                    className="pl-10 bg-gray-900/50 border-gray-700 text-white placeholder:text-gray-500"
                     required
                   />
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password" className="text-gray-300">Password</Label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-500" />
                   <Input
                     id="password"
                     name="password"
@@ -151,13 +174,13 @@ const Register = () => {
                     placeholder="Create a strong password"
                     value={formData.password}
                     onChange={handleChange}
-                    className="pl-10 pr-10"
+                    className="pl-10 pr-10 bg-gray-900/50 border-gray-700 text-white placeholder:text-gray-500"
                     required
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-3 text-muted-foreground hover:text-foreground transition-colors"
+                    className="absolute right-3 top-3 text-gray-500 hover:text-gray-300 transition-colors"
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
@@ -170,12 +193,12 @@ const Register = () => {
                         <div
                           key={i}
                           className={`h-1 flex-1 rounded-full transition-colors ${
-                            i < passwordStrength ? getStrengthColor(passwordStrength) : 'bg-muted'
+                            i < passwordStrength ? getStrengthColor(passwordStrength) : 'bg-gray-700'
                           }`}
                         />
                       ))}
                     </div>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-gray-500">
                       Password strength: {getStrengthText(passwordStrength)}
                     </p>
                   </div>
@@ -183,9 +206,9 @@ const Register = () => {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="confirmPassword">Confirm Password</Label>
+                <Label htmlFor="confirmPassword" className="text-gray-300">Confirm Password</Label>
                 <div className="relative">
-                  <Key className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Key className="absolute left-3 top-3 h-4 w-4 text-gray-500" />
                   <Input
                     id="confirmPassword"
                     name="confirmPassword"
@@ -193,19 +216,19 @@ const Register = () => {
                     placeholder="Confirm your password"
                     value={formData.confirmPassword}
                     onChange={handleChange}
-                    className="pl-10 pr-10"
+                    className="pl-10 pr-10 bg-gray-900/50 border-gray-700 text-white placeholder:text-gray-500"
                     required
                   />
                   <button
                     type="button"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-3 top-3 text-muted-foreground hover:text-foreground transition-colors"
+                    className="absolute right-3 top-3 text-gray-500 hover:text-gray-300 transition-colors"
                   >
                     {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
                 {formData.confirmPassword && formData.password !== formData.confirmPassword && (
-                  <p className="text-xs text-destructive">Passwords do not match</p>
+                  <p className="text-xs text-red-400">Passwords do not match</p>
                 )}
               </div>
 
@@ -217,13 +240,13 @@ const Register = () => {
                     setFormData(prev => ({ ...prev, acceptTerms: checked }))
                   }
                 />
-                <Label htmlFor="acceptTerms" className="text-sm">
+                <Label htmlFor="acceptTerms" className="text-sm text-gray-400">
                   I agree to the{' '}
-                  <Link to="/terms" className="text-primary hover:text-primary-glow">
+                  <Link to="/terms" className="text-blue-400 hover:text-blue-300">
                     Terms of Service
                   </Link>{' '}
                   and{' '}
-                  <Link to="/privacy" className="text-primary hover:text-primary-glow">
+                  <Link to="/privacy" className="text-blue-400 hover:text-blue-300">
                     Privacy Policy
                   </Link>
                 </Label>
@@ -231,7 +254,7 @@ const Register = () => {
 
               <Button 
                 type="submit" 
-                className="w-full security-glow"
+                className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white"
                 disabled={isLoading || !formData.acceptTerms || formData.password !== formData.confirmPassword}
               >
                 {isLoading ? 'Creating Account...' : 'Create Account'}
@@ -239,11 +262,11 @@ const Register = () => {
             </form>
 
             <div className="text-center">
-              <div className="text-sm text-muted-foreground">
+              <div className="text-sm text-gray-400">
                 Already have an account?{' '}
                 <Link 
                   to="/login" 
-                  className="text-primary hover:text-primary-glow transition-colors font-medium"
+                  className="text-blue-400 hover:text-blue-300 transition-colors font-medium"
                 >
                   Sign in
                 </Link>
@@ -251,7 +274,7 @@ const Register = () => {
             </div>
 
             <div className="flex items-center justify-center pt-4">
-              <div className="security-badge">
+              <div className="flex items-center px-3 py-1 rounded-full bg-green-500/10 border border-green-500/20 text-green-400 text-xs">
                 <Shield className="h-3 w-3 mr-1" />
                 256-bit Encryption
               </div>
