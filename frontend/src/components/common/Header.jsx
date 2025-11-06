@@ -13,9 +13,11 @@ import {
 } from '../../components/ui/dropdown-menu';
 import { Badge } from '../../components/ui/badge';
 import { useAuth } from '../../context/AuthContext';
+import ProfileModal from '../profile/ProfileModal';
 
 const Header = () => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [showProfile, setShowProfile] = useState(false);
   const { user, logout } = useAuth();
 
   const handleLogout = () => {
@@ -84,7 +86,7 @@ const Header = () => {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setShowProfile(true)}>
                 <User className="mr-2 h-4 w-4" />
                 <span>Profile</span>
               </DropdownMenuItem>
@@ -101,6 +103,11 @@ const Header = () => {
           </DropdownMenu>
         </div>
       </div>
+
+      {/* Profile Modal */}
+      {showProfile && (
+        <ProfileModal onClose={() => setShowProfile(false)} />
+      )}
     </header>
   );
 };

@@ -1,6 +1,7 @@
 import { createContext, useContext, useReducer, useEffect } from "react";
+import { getApiUrl } from "../config/api";
 
-const AuthContext = createContext(null);
+export const AuthContext = createContext(null);
 
 const initialState = {
   user: null,
@@ -79,7 +80,7 @@ export const AuthProvider = ({ children }) => {
     dispatch({ type: "CLEAR_ERROR" });
     
     try {
-      const response = await fetch("http://localhost:5000/api/auth/register", {
+      const response = await fetch(getApiUrl("/api/auth/register"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(userData),
@@ -106,7 +107,7 @@ export const AuthProvider = ({ children }) => {
     dispatch({ type: "CLEAR_ERROR" });
     
     try {
-      const response = await fetch("http://localhost:5000/api/auth/login", {
+      const response = await fetch(getApiUrl("/api/auth/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(credentials),
@@ -160,7 +161,7 @@ export const AuthProvider = ({ children }) => {
     dispatch({ type: "CLEAR_ERROR" });
     
     try {
-      const response = await fetch("http://localhost:5000/api/auth/verify-2fa", {
+      const response = await fetch(getApiUrl("/api/auth/verify-2fa"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: state.pendingUserId, token: code }),
@@ -190,7 +191,7 @@ export const AuthProvider = ({ children }) => {
     dispatch({ type: "CLEAR_ERROR" });
     
     try {
-      const response = await fetch("http://localhost:5000/api/auth/verify-email-otp", {
+      const response = await fetch(getApiUrl("/api/auth/verify-email-otp"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, otp }),
@@ -216,7 +217,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const token = localStorage.getItem("token");
       if (token) {
-        await fetch("http://localhost:5000/api/auth/logout", {
+        await fetch(getApiUrl("/api/auth/logout"), {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         });
@@ -226,22 +227,60 @@ export const AuthProvider = ({ children }) => {
     } finally {
       localStorage.removeItem("token");
       localStorage.removeItem("user");
+      localStorage.removeItem("refreshToken");
       dispatch({ type: "LOGOUT" });
+    }
+  };
+
+  // Token refresh function
+  const refreshAccessToken = async () => {
+    try {
+      const refreshToken = localStorage.getItem("refreshToken");
+      if (!refreshToken) {
+        throw new Error("No refresh token available");
+      }
+
+      const response = await fetch(getApiUrl("/api/auth/refresh-token"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success && result.data) {
+        localStorage.setItem("token", result.data.accessToken);
+        if (result.data.refreshToken) {
+          localStorage.setItem("refreshToken", result.data.refreshToken);
+        }
+        return result.data.accessToken;
+      }
+
+      throw new Error("Token refresh failed");
+    } catch (error) {
+      console.error("Token refresh error:", error);
+      logout();
+      throw error;
     }
   };
 
   const clearError = () => dispatch({ type: "CLEAR_ERROR" });
 
+  // Get token from localStorage
+  const getToken = () => localStorage.getItem("token");
+
   return (
     <AuthContext.Provider
       value={{
         ...state,
+        token: getToken(),
         login,
         register,
         logout,
         clearError,
         verifyTwoFactor,
         verifyEmailOTP,
+        refreshAccessToken,
       }}
     >
       {children}

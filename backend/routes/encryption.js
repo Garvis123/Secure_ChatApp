@@ -7,6 +7,7 @@ import {
   getSessionKey,
   revokeSession,
   generateDHParameters,
+  generateZeroKnowledgeProof,
   verifyZeroKnowledge
 } from '../controllers/encryptionController.js';
 import { validate } from '../middleware/validation.js';
@@ -60,12 +61,23 @@ router.delete('/session/:roomId',
 // Generate DH Parameters
 router.post('/dh-parameters', generateDHParameters);
 
-// Zero-Knowledge Proof Verification
+// Zero-Knowledge Proof
+router.post('/zkp/generate',
+  [
+    body('privateKey').notEmpty(),
+    body('challenge').notEmpty(),
+    body('publicKey').notEmpty()
+  ],
+  validate,
+  generateZeroKnowledgeProof
+);
+
 router.post('/zkp/verify',
   [
     body('commitment').notEmpty(),
     body('challenge').notEmpty(),
-    body('response').notEmpty()
+    body('response').notEmpty(),
+    body('publicKey').notEmpty()
   ],
   validate,
   verifyZeroKnowledge

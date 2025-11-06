@@ -17,6 +17,7 @@ import authRoutes from './routes/auth.js';
 import chatRoutes from './routes/chat.js';
 import fileRoutes from './routes/file.js';
 import encryptionRoutes from './routes/encryption.js';
+import adminRoutes from './routes/admin.js';
 
 // Middleware imports
 import { authenticateToken } from './middleware/auth.js';
@@ -69,6 +70,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/chat', authenticateToken, chatRoutes);
 app.use('/api/file', authenticateToken, fileRoutes);
 app.use('/api/encryption', authenticateToken, encryptionRoutes);
+app.use('/api/admin', authenticateToken, adminRoutes);
 
 // Initialize Socket.io
 initializeSocket(io);

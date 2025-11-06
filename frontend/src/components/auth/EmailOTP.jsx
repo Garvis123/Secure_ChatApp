@@ -5,6 +5,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { useAuth } from '../../context/AuthContext';
+import { getApiUrl } from '../../config/api';
 
 const EmailOTP = () => {
   const [otp, setOtp] = useState('');
@@ -57,7 +58,7 @@ const EmailOTP = () => {
     
     setIsLoading(true);
     try {
-      const response = await fetch('http://localhost:5000/api/auth/send-email-otp', {
+      const response = await fetch(getApiUrl('/api/auth/send-email-otp'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email })

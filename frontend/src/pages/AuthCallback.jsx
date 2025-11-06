@@ -1,11 +1,12 @@
 import { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { getApiUrl } from '../config/api';
 
 const AuthCallback = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { dispatch } = useAuth();
+  const { login } = useAuth();
 
   useEffect(() => {
     const token = searchParams.get('token');
@@ -22,15 +23,17 @@ const AuthCallback = () => {
       localStorage.setItem('refreshToken', refreshToken);
       
       // Fetch user data
-      fetch('http://localhost:5000/api/auth/profile', {
+      fetch(getApiUrl('/api/auth/profile'), {
         headers: { 'Authorization': `Bearer ${token}` }
       })
         .then(res => res.json())
         .then(data => {
-          if (data.success) {
+          if (data.success && data.data?.user) {
             localStorage.setItem('user', JSON.stringify(data.data.user));
-            dispatch({ type: 'SET_USER', payload: data.data.user });
-            navigate('/dashboard');
+            // Trigger a page reload or update auth state
+            window.location.href = '/dashboard';
+          } else {
+            navigate('/login');
           }
         })
         .catch(() => {
@@ -39,7 +42,7 @@ const AuthCallback = () => {
     } else {
       navigate('/login');
     }
-  }, [searchParams, navigate, dispatch]);
+  }, [searchParams, navigate]);
 
   return (
     <div className="min-h-screen flex items-center justify-center">

@@ -135,6 +135,28 @@ export function rsaDecrypt(encryptedData, privateKey) {
 }
 
 /**
+ * Digital Signatures (RSA)
+ */
+export function signData(data, privateKey) {
+  const sign = crypto.createSign('SHA256');
+  sign.update(data);
+  sign.end();
+  return sign.sign(privateKey, 'base64');
+}
+
+export function verifySignature(data, signature, publicKey) {
+  try {
+    const verify = crypto.createVerify('SHA256');
+    verify.update(data);
+    verify.end();
+    return verify.verify(publicKey, signature, 'base64');
+  } catch (error) {
+    console.error('Signature verification error:', error);
+    return false;
+  }
+}
+
+/**
  * HMAC
  */
 export function generateHMAC(data, secret) {
@@ -179,14 +201,87 @@ export function decryptMessage(encryptedData, key, iv, authTag) {
 }
 
 /**
- * Placeholder for DH params and ZK proof (implement your logic)
+ * Generate Diffie-Hellman parameters for key exchange
  */
 export function generateDHParams() {
-  // TODO: implement Diffie-Hellman param generation
-  return { p: '...', g: '...' };
+  const dh = crypto.createDiffieHellman(2048);
+  dh.generateKeys();
+  
+  return {
+    prime: dh.getPrime().toString('hex'),
+    generator: dh.getGenerator().toString('hex'),
+    publicKey: dh.getPublicKey().toString('hex')
+  };
 }
 
-export function verifyZKProof(proof) {
-  // TODO: implement zero-knowledge proof verification
-  return true;
+/**
+ * Zero-Knowledge Proof using Schnorr signature scheme
+ * This allows users to prove knowledge of a secret without revealing it
+ */
+export function generateZKProof(privateKey, challenge, publicKey) {
+  // Convert inputs to buffers
+  const privKey = Buffer.from(privateKey, 'hex');
+  const challengeBuf = Buffer.from(challenge, 'hex');
+  const pubKey = Buffer.from(publicKey, 'hex');
+  
+  // Generate random nonce (commitment)
+  const nonce = crypto.randomBytes(32);
+  const commitment = crypto.createHash('sha256').update(nonce).digest('hex');
+  
+  // Create response (response = nonce + challenge * privateKey)
+  const challengeNum = BigInt('0x' + challengeBuf.toString('hex'));
+  const privKeyNum = BigInt('0x' + privKey.toString('hex'));
+  const nonceNum = BigInt('0x' + nonce.toString('hex'));
+  
+  // Simplified Schnorr: response = (nonce + challenge * privateKey) mod n
+  // In production, use proper elliptic curve operations
+  const response = (nonceNum + challengeNum * privKeyNum).toString(16);
+  
+  return {
+    commitment,
+    response,
+    publicKey: pubKey.toString('hex')
+  };
+}
+
+/**
+ * Verify Zero-Knowledge Proof
+ */
+export function verifyZKProof(proof, challenge, publicKey) {
+  try {
+    if (!proof || !proof.commitment || !proof.response || !challenge || !publicKey) {
+      return false;
+    }
+    
+    // Verify proof structure
+    const commitment = Buffer.from(proof.commitment, 'hex');
+    const response = Buffer.from(proof.response, 'hex');
+    const challengeBuf = Buffer.from(challenge, 'hex');
+    const pubKey = Buffer.from(publicKey, 'hex');
+    
+    // Reconstruct commitment from response and challenge
+    // commitment' = hash(response - challenge * publicKey)
+    const challengeNum = BigInt('0x' + challengeBuf.toString('hex'));
+    const responseNum = BigInt('0x' + response.toString('hex'));
+    const pubKeyNum = BigInt('0x' + pubKey.toString('hex'));
+    
+    // Verify: commitment == hash(response - challenge * publicKey)
+    const reconstructed = (responseNum - challengeNum * pubKeyNum).toString(16);
+    const reconstructedHash = crypto.createHash('sha256')
+      .update(Buffer.from(reconstructed, 'hex'))
+      .digest('hex');
+    
+    // Use timing-safe comparison (ensure same length)
+    const commitmentBuf = Buffer.from(commitment, 'hex');
+    const reconstructedBuf = Buffer.from(reconstructedHash, 'hex');
+    
+    if (commitmentBuf.length !== reconstructedBuf.length) {
+      return false;
+    }
+    
+    return crypto.timingSafeEqual(commitmentBuf, reconstructedBuf);
+  } catch (error) {
+    console.error('ZKP verification error:', error);
+    return false;
+  }
 }

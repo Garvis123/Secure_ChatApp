@@ -7,7 +7,7 @@ const createTransporter = () => {
     service: 'gmail',
     auth: {
       user: process.env.EMAIL_USER, // Your Gmail address
-      pass: process.env.EMAIL_PASSWORD // App Password (not regular password)
+      pass: process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD // App Password (not regular password)
     }
   });
 

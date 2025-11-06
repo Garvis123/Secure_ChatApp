@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import { Send, Paperclip, Clock, Smile, Shield } from 'lucide-react';
+import EmojiPicker from 'emoji-picker-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { 
@@ -8,6 +9,7 @@ import {
   DropdownMenuItem, 
   DropdownMenuTrigger 
 } from '../ui/dropdown-menu';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Badge } from '../ui/badge';
 import { useChat } from '../../context/ChatContext';
 import { useAuth } from '../../context/AuthContext';
@@ -16,6 +18,7 @@ const MessageInput = ({ roomId, onFileUpload }) => {
   const [message, setMessage] = useState('');
   const [selfDestruct, setSelfDestruct] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const inputRef = useRef(null);
   const { sendMessage, setTyping } = useChat();
   const { user } = useAuth();
@@ -69,6 +72,13 @@ const MessageInput = ({ roomId, onFileUpload }) => {
     if (selfDestruct < 60) return `${selfDestruct}s`;
     if (selfDestruct < 3600) return `${Math.floor(selfDestruct / 60)}m`;
     return `${Math.floor(selfDestruct / 3600)}h`;
+  };
+
+  const onEmojiClick = (emojiData) => {
+    const emoji = emojiData.emoji;
+    setMessage(prev => prev + emoji);
+    setShowEmojiPicker(false);
+    inputRef.current?.focus();
   };
 
   return (
@@ -129,10 +139,28 @@ const MessageInput = ({ roomId, onFileUpload }) => {
             <Paperclip className="h-4 w-4" />
           </Button>
 
-          {/* Emoji Picker (placeholder) */}
-          <Button variant="ghost" size="sm" className="h-8">
-            <Smile className="h-4 w-4" />
-          </Button>
+          {/* Emoji Picker */}
+          <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
+            <PopoverTrigger asChild>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-8"
+                type="button"
+              >
+                <Smile className="h-4 w-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0 border-border/50" align="end">
+              <EmojiPicker
+                onEmojiClick={onEmojiClick}
+                autoFocusSearch={false}
+                theme="dark"
+                width={350}
+                height={400}
+              />
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
 

@@ -17,8 +17,12 @@ import {
 } from '../controllers/chatController.js';
 import { validate } from '../middleware/validation.js';
 import { messageLimiter } from '../middleware/rateLimiter.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
+
+// Apply authentication middleware to ALL chat routes
+router.use(authenticateToken);
 
 // Room Management
 router.post('/rooms',
@@ -33,15 +37,17 @@ router.post('/rooms',
 
 router.get('/rooms', getRooms);
 
+// CHANGE: Use isString() instead of isMongoId() for roomId
 router.get('/rooms/:roomId',
-  [param('roomId').isMongoId()],
+  [param('roomId').isString().notEmpty()],
   validate,
   getRoom
 );
 
+// CHANGE: Use isString() instead of isMongoId() for roomId
 router.post('/rooms/:roomId/participants',
   [
-    param('roomId').isMongoId(),
+    param('roomId').isString().notEmpty(),
     body('userId').isMongoId(),
     body('username').notEmpty(),
     body('publicKey').notEmpty()
@@ -50,31 +56,35 @@ router.post('/rooms/:roomId/participants',
   addParticipant
 );
 
+// CHANGE: Use isString() instead of isMongoId() for roomId
 router.delete('/rooms/:roomId/participants/:userId',
   [
-    param('roomId').isMongoId(),
+    param('roomId').isString().notEmpty(),
     param('userId').isMongoId()
   ],
   validate,
   removeParticipant
 );
 
+// CHANGE: Use isString() instead of isMongoId() for roomId
 router.post('/rooms/:roomId/leave',
-  [param('roomId').isMongoId()],
+  [param('roomId').isString().notEmpty()],
   validate,
   leaveRoom
 );
 
+// CHANGE: Use isString() instead of isMongoId() for roomId
 router.delete('/rooms/:roomId',
-  [param('roomId').isMongoId()],
+  [param('roomId').isString().notEmpty()],
   validate,
   deleteRoom
 );
 
 // Message Management
+// CHANGE: Use isString() instead of isMongoId() for roomId
 router.get('/rooms/:roomId/messages',
   [
-    param('roomId').isMongoId(),
+    param('roomId').isString().notEmpty(),
     query('page').optional().isInt({ min: 1 }),
     query('limit').optional().isInt({ min: 1, max: 100 })
   ],
@@ -82,10 +92,11 @@ router.get('/rooms/:roomId/messages',
   getMessages
 );
 
+// CHANGE: Use isString() instead of isMongoId() for roomId
 router.post('/rooms/:roomId/messages',
   messageLimiter,
   [
-    param('roomId').isMongoId(),
+    param('roomId').isString().notEmpty(),
     body('encryptedContent').notEmpty(),
     body('iv').notEmpty(),
     body('messageType').optional().isIn(['text', 'file', 'image', 'video', 'audio', 'stego'])
@@ -94,6 +105,7 @@ router.post('/rooms/:roomId/messages',
   sendMessage
 );
 
+// Keep messageId as MongoId since these should be real database entries
 router.put('/messages/:messageId/read',
   [param('messageId').isMongoId()],
   validate,

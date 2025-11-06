@@ -1,15 +1,33 @@
 import Room from '../models/Room.js';
 import Message from '../models/Message.js';
 import User from '../models/User.js';
+import mongoose from 'mongoose';
 import { detectAnomaly } from '../utils/anomalyDetection.js';
+import { verifySignature } from '../utils/crypto.js';
 
 // Create new room
 export const createRoom = async (req, res) => {
   try {
-    const { name, type, participantIds, participantUsernames, participantKeys } = req.body;
+    const { name, type, participantIds, encryptionKey } = req.body;
     const userId = req.user.userId;
 
-    // Verify all participants exist
+    if (!participantIds || !Array.isArray(participantIds) || participantIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one participant is required'
+      });
+    }
+
+    // Validate all participant IDs
+    const invalidIds = participantIds.filter(id => !mongoose.Types.ObjectId.isValid(id));
+    if (invalidIds.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid participant ID format'
+      });
+    }
+
+    // Verify all participants exist and get their data
     const users = await User.find({ _id: { $in: participantIds } });
     if (users.length !== participantIds.length) {
       return res.status(400).json({
@@ -18,31 +36,38 @@ export const createRoom = async (req, res) => {
       });
     }
 
-    // Build participants array
-    const participants = participantIds.map((id, index) => ({
-      userId: id,
-      username: participantUsernames[index],
-      publicKey: participantKeys[index],
+    // Build participants array from user data
+    const participants = users.map(user => ({
+      userId: user._id,
+      username: user.username,
+      publicKey: user.publicKey || null,
       joinedAt: new Date()
     }));
 
     // Add creator if not in participants
-    const creatorExists = participants.some(p => p.userId.toString() === userId);
+    const creatorExists = participants.some(p => p.userId.toString() === userId.toString());
     if (!creatorExists) {
       const creator = await User.findById(userId);
-      participants.push({
-        userId,
+      if (!creator) {
+        return res.status(404).json({
+          success: false,
+          message: 'Creator user not found'
+        });
+      }
+      participants.unshift({
+        userId: creator._id,
         username: creator.username,
-        publicKey: creator.publicKey,
+        publicKey: creator.publicKey || null,
         joinedAt: new Date()
       });
     }
 
     const room = new Room({
-      name,
-      type,
+      name: name || (type === 'direct' ? `Chat with ${participants.find(p => p.userId.toString() !== userId.toString())?.username || 'User'}` : 'Group Chat'),
+      type: type || (participants.length === 2 ? 'direct' : 'group'),
       participants,
       admin: userId,
+      encryptionKey: encryptionKey || null,
       encryptionEnabled: true,
       forwardSecrecy: {
         enabled: true,
@@ -62,7 +87,17 @@ export const createRoom = async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Room created successfully',
-      data: { room }
+      data: {
+        room: {
+          id: room._id,
+          name: room.name,
+          type: room.type,
+          participants: room.participants,
+          admin: room.admin,
+          encryptionKey: room.encryptionKey,
+          createdAt: room.createdAt
+        }
+      }
     });
   } catch (error) {
     res.status(500).json({
@@ -102,6 +137,14 @@ export const getRoom = async (req, res) => {
     const { roomId } = req.params;
     const userId = req.user.userId;
 
+    // Validate roomId is a valid MongoDB ObjectId
+    if (!mongoose.Types.ObjectId.isValid(roomId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid room ID format'
+      });
+    }
+
     const room = await Room.findOne({
       _id: roomId,
       'participants.userId': userId
@@ -134,6 +177,22 @@ export const addParticipant = async (req, res) => {
     const { userId: newUserId, username, publicKey } = req.body;
     const userId = req.user.userId;
 
+    // Validate roomId is a valid MongoDB ObjectId
+    if (!mongoose.Types.ObjectId.isValid(roomId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid room ID format'
+      });
+    }
+
+    // Validate newUserId is a valid MongoDB ObjectId
+    if (!mongoose.Types.ObjectId.isValid(newUserId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID format'
+      });
+    }
+
     const room = await Room.findById(roomId);
     if (!room) {
       return res.status(404).json({
@@ -142,11 +201,14 @@ export const addParticipant = async (req, res) => {
       });
     }
 
-    // Check if requester is admin
-    if (room.admin.toString() !== userId) {
+    // Check if requester is admin or participant (allow participants to add others in group chats)
+    const isAdmin = room.admin.toString() === userId;
+    const isParticipant = room.participants.some(p => p.userId.toString() === userId);
+    
+    if (!isAdmin && !isParticipant) {
       return res.status(403).json({
         success: false,
-        message: 'Only admin can add participants'
+        message: 'Access denied'
       });
     }
 
@@ -159,7 +221,25 @@ export const addParticipant = async (req, res) => {
       });
     }
 
-    await room.addParticipant(newUserId, username, publicKey);
+    // Get user data if not provided
+    const newUser = await User.findById(newUserId);
+    if (!newUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Use provided data or fetch from user
+    const participantUsername = username || newUser.username;
+    const participantPublicKey = publicKey || newUser.publicKey || null;
+
+    await room.addParticipant(newUserId, participantUsername, participantPublicKey);
+
+    // Update user's rooms list
+    await User.findByIdAndUpdate(newUserId, {
+      $addToSet: { rooms: room._id }
+    });
 
     res.json({
       success: true,
@@ -180,6 +260,22 @@ export const removeParticipant = async (req, res) => {
   try {
     const { roomId, userId: targetUserId } = req.params;
     const userId = req.user.userId;
+
+    // Validate roomId is a valid MongoDB ObjectId
+    if (!mongoose.Types.ObjectId.isValid(roomId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid room ID format'
+      });
+    }
+
+    // Validate targetUserId is a valid MongoDB ObjectId
+    if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID format'
+      });
+    }
 
     const room = await Room.findById(roomId);
     if (!room) {
@@ -217,6 +313,14 @@ export const leaveRoom = async (req, res) => {
   try {
     const { roomId } = req.params;
     const userId = req.user.userId;
+
+    // Validate roomId is a valid MongoDB ObjectId
+    if (!mongoose.Types.ObjectId.isValid(roomId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid room ID format'
+      });
+    }
 
     const room = await Room.findById(roomId);
     if (!room) {
@@ -263,6 +367,14 @@ export const deleteRoom = async (req, res) => {
     const { roomId } = req.params;
     const userId = req.user.userId;
 
+    // Validate roomId is a valid MongoDB ObjectId
+    if (!mongoose.Types.ObjectId.isValid(roomId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid room ID format'
+      });
+    }
+
     const room = await Room.findById(roomId);
     if (!room) {
       return res.status(404).json({
@@ -308,6 +420,14 @@ export const getMessages = async (req, res) => {
     const { page = 1, limit = 50 } = req.query;
     const userId = req.user.userId;
 
+    // Validate roomId is a valid MongoDB ObjectId
+    if (!mongoose.Types.ObjectId.isValid(roomId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid room ID format'
+      });
+    }
+
     // Verify user is in room
     const room = await Room.findOne({
       _id: roomId,
@@ -315,9 +435,9 @@ export const getMessages = async (req, res) => {
     });
 
     if (!room) {
-      return res.status(403).json({
+      return res.status(404).json({
         success: false,
-        message: 'Access denied'
+        message: 'Room not found or access denied'
       });
     }
 
@@ -373,6 +493,14 @@ export const sendMessage = async (req, res) => {
     const userId = req.user.userId;
     const username = req.user.username;
 
+    // Validate roomId is a valid MongoDB ObjectId
+    if (!mongoose.Types.ObjectId.isValid(roomId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid room ID format'
+      });
+    }
+
     // Verify user is in room
     const room = await Room.findOne({
       _id: roomId,
@@ -380,10 +508,26 @@ export const sendMessage = async (req, res) => {
     });
 
     if (!room) {
-      return res.status(403).json({
+      return res.status(404).json({
         success: false,
-        message: 'Access denied'
+        message: 'Room not found or access denied'
       });
+    }
+
+    // Verify digital signature if provided (decentralized identity)
+    if (signature) {
+      const user = await User.findById(userId);
+      if (user && user.publicKey) {
+        const messageData = `${roomId}${userId}${encryptedContent}${iv}`;
+        const isValidSignature = verifySignature(messageData, signature, user.publicKey);
+        
+        if (!isValidSignature) {
+          return res.status(401).json({
+            success: false,
+            message: 'Invalid message signature'
+          });
+        }
+      }
     }
 
     // Anomaly detection
@@ -395,6 +539,12 @@ export const sendMessage = async (req, res) => {
     const isAnomalous = detectAnomaly(recentMessages.length);
     if (isAnomalous) {
       console.warn(`Anomalous activity detected for user ${userId}`);
+      // Log anomaly for admin dashboard
+      const { logActivity } = await import('../utils/anomalyDetection.js');
+      logActivity(userId, 'message_sent', { 
+        anomaly: true, 
+        messageCount: recentMessages.length 
+      });
     }
 
     // Create message
@@ -441,6 +591,14 @@ export const markMessageAsRead = async (req, res) => {
     const { messageId } = req.params;
     const userId = req.user.userId;
 
+    // Validate messageId is a valid MongoDB ObjectId
+    if (!mongoose.Types.ObjectId.isValid(messageId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid message ID format'
+      });
+    }
+
     const message = await Message.findById(messageId);
     if (!message) {
       return res.status(404).json({
@@ -469,6 +627,14 @@ export const deleteMessage = async (req, res) => {
   try {
     const { messageId } = req.params;
     const userId = req.user.userId;
+
+    // Validate messageId is a valid MongoDB ObjectId
+    if (!mongoose.Types.ObjectId.isValid(messageId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid message ID format'
+      });
+    }
 
     const message = await Message.findById(messageId);
     if (!message) {

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import Header from '../components/common/Header';
 import Sidebar from '../components/common/Sidebar';
-import ChatWindow from '../components/chat/ChatWindow';
+import ChatWindow from '../components/common/ChatWindow';
 import { useChat } from '../context/ChatContext';
 
 const Dashboard = () => {

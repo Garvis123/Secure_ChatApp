@@ -1,6 +1,9 @@
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
+import mongoose from 'mongoose';
+import Room from '../models/Room.js';
 import { embedMessageInImage, extractMessageFromImage } from '../utils/steganography.js';
+import { encryptFile, decryptFile, generateKey } from '../utils/crypto.js';
 
 // In-memory file storage (replace with cloud storage in production)
 const fileStore = new Map();
@@ -19,19 +22,46 @@ export const uploadFile = async (req, res) => {
     const { roomId } = req.body;
     const userId = req.user.userId;
 
+    // Validate roomId if provided (allow empty string for non-room uploads)
+    if (roomId && roomId.trim() !== '' && !mongoose.Types.ObjectId.isValid(roomId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid room ID format. Please create or join a valid room first.'
+      });
+    }
+    
+    // If roomId is empty string, set to null
+    const validRoomId = roomId && roomId.trim() !== '' ? roomId : null;
+
+    // Check file size (100MB limit)
+    if (size > 100 * 1024 * 1024) {
+      return res.status(400).json({
+        success: false,
+        message: 'File size exceeds 100MB limit'
+      });
+    }
+
     // Generate unique file ID
     const fileId = uuidv4();
 
-    // Store file (in production, upload to S3/cloud storage)
+    // Encrypt file before storage
+    const encryptionKey = generateKey();
+    const encryptedFile = encryptFile(buffer, encryptionKey);
+
+    // Store encrypted file (in production, upload to S3/cloud storage)
     fileStore.set(fileId, {
-      buffer,
+      encryptedData: encryptedFile.encryptedData,
+      iv: encryptedFile.iv,
+      authTag: encryptedFile.authTag,
+      encryptionKey: encryptionKey.toString('hex'), // In production, encrypt this key with recipient's public key
       metadata: {
         fileName: originalname,
         mimeType: mimetype,
         fileSize: size,
         uploadedBy: userId,
-        roomId,
-        uploadedAt: new Date()
+        roomId: validRoomId,
+        uploadedAt: new Date(),
+        encrypted: true
       }
     });
 
@@ -59,6 +89,7 @@ export const uploadFile = async (req, res) => {
 export const downloadFile = async (req, res) => {
   try {
     const { fileId } = req.params;
+    const userId = req.user.userId;
 
     const fileData = fileStore.get(fileId);
     if (!fileData) {
@@ -68,12 +99,47 @@ export const downloadFile = async (req, res) => {
       });
     }
 
-    const { buffer, metadata } = fileData;
+    const { metadata } = fileData;
+
+    // Check access (user must be in the room or be the uploader)
+    if (metadata.roomId) {
+      const room = await Room.findOne({
+        _id: metadata.roomId,
+        'participants.userId': userId
+      });
+      
+      if (!room && metadata.uploadedBy !== userId.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied'
+        });
+      }
+    } else if (metadata.uploadedBy !== userId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied'
+      });
+    }
+
+    // Decrypt file if encrypted
+    let buffer;
+    if (fileData.encryptedData && fileData.iv && fileData.authTag) {
+      const encryptionKey = Buffer.from(fileData.encryptionKey, 'hex');
+      buffer = decryptFile(
+        fileData.encryptedData,
+        encryptionKey,
+        fileData.iv,
+        fileData.authTag
+      );
+    } else {
+      // Legacy support for unencrypted files
+      buffer = fileData.buffer;
+    }
 
     res.set({
       'Content-Type': metadata.mimeType,
       'Content-Disposition': `attachment; filename="${metadata.fileName}"`,
-      'Content-Length': metadata.fileSize
+      'Content-Length': buffer.length
     });
 
     res.send(buffer);

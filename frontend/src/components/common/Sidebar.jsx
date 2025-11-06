@@ -17,11 +17,13 @@ import { ScrollArea } from '../../components/ui/scroll-area';
 import { Separator } from '../../components/ui/separator';
 import { Avatar, AvatarFallback } from '../../components/ui/avatar';
 import { cn } from '../../lib/utils';
-import { useChat } from '../../context/ChatContext';
+import { useChat } from '../../context/ChatContext'; // Fixed import path
+import CreateRoom from '../chat/CreateRoom';
 
 const Sidebar = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('chats');
+  const [showCreateRoom, setShowCreateRoom] = useState(false);
   const { rooms, activeRoom, joinRoom, messages } = useChat();
 
   const mockRooms = [
@@ -95,69 +97,79 @@ const Sidebar = () => {
     }
   };
 
-  const RoomItem = ({ room, onClick }) => (
-    <div
-      onClick={() => onClick(room.id)}
-      className={cn(
-        "flex items-center space-x-3 p-3 rounded-lg cursor-pointer transition-all hover:bg-muted/50",
-        activeRoom === room.id && "bg-primary/10 border border-primary/20"
-      )}
-    >
-      <div className="relative">
-        {room.type === 'direct' ? (
-          <Avatar className="h-10 w-10">
-            <AvatarFallback className="bg-gradient-accent text-accent-foreground">
-              {room.name.charAt(0)}
-            </AvatarFallback>
-          </Avatar>
-        ) : (
-          <div className="h-10 w-10 rounded-full bg-gradient-card flex items-center justify-center">
-            <Hash className="h-5 w-5 text-muted-foreground" />
-          </div>
+  const RoomItem = ({ room, onClick }) => {
+    const roomId = room.id || room._id;
+    const roomName = room.name || 'Unnamed Room';
+    const roomType = room.type || 'direct';
+    const participants = room.participants || [];
+    const participantCount = Array.isArray(participants) ? participants.length : (room.participants || 0);
+    const lastMessage = room.lastMessage?.content || room.lastMessage || 'No messages yet';
+    const timestamp = room.lastMessage?.createdAt || room.timestamp || room.updatedAt || new Date().toISOString();
+    
+    return (
+      <div
+        onClick={() => onClick(roomId)}
+        className={cn(
+          "flex items-center space-x-3 p-3 rounded-lg cursor-pointer transition-all hover:bg-muted/50",
+          activeRoom === roomId && "bg-primary/10 border border-primary/20"
         )}
-        
-        {room.type === 'direct' && (
-          <div className={cn(
-            "absolute -bottom-1 -right-1 h-3 w-3 rounded-full border-2 border-background",
-            room.online ? "bg-success" : "bg-muted"
-          )} />
-        )}
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <h3 className="font-medium truncate">{room.name}</h3>
-            {room.encrypted && (
-              <Shield className="h-3 w-3 text-accent" />
-            )}
-          </div>
-          <div className="flex items-center space-x-1">
-            <span className="text-xs text-muted-foreground">
-              {formatTime(room.timestamp)}
-            </span>
-            {room.unread > 0 && (
-              <Badge className="h-5 w-5 p-0 flex items-center justify-center text-xs bg-primary">
-                {room.unread}
-              </Badge>
-            )}
-          </div>
-        </div>
-        
-        <div className="flex items-center justify-between mt-1">
-          <p className="text-sm text-muted-foreground truncate">
-            {room.lastMessage}
-          </p>
-          {room.type === 'channel' && (
-            <span className="text-xs text-muted-foreground flex items-center space-x-1">
-              <Users className="h-3 w-3" />
-              <span>{room.participants}</span>
-            </span>
+      >
+        <div className="relative">
+          {roomType === 'direct' ? (
+            <Avatar className="h-10 w-10">
+              <AvatarFallback className="bg-gradient-accent text-accent-foreground">
+                {roomName.charAt(0).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+          ) : (
+            <div className="h-10 w-10 rounded-full bg-gradient-card flex items-center justify-center">
+              <Hash className="h-5 w-5 text-muted-foreground" />
+            </div>
+          )}
+          
+          {roomType === 'direct' && (
+            <div className={cn(
+              "absolute -bottom-1 -right-1 h-3 w-3 rounded-full border-2 border-background",
+              room.online ? "bg-success" : "bg-muted"
+            )} />
           )}
         </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <h3 className="font-medium truncate">{roomName}</h3>
+              {(room.encrypted !== false || room.encryptionEnabled !== false) && (
+                <Shield className="h-3 w-3 text-accent" />
+              )}
+            </div>
+            <div className="flex items-center space-x-1">
+              <span className="text-xs text-muted-foreground">
+                {formatTime(timestamp)}
+              </span>
+              {room.unread > 0 && (
+                <Badge className="h-5 w-5 p-0 flex items-center justify-center text-xs bg-primary">
+                  {room.unread}
+                </Badge>
+              )}
+            </div>
+          </div>
+          
+          <div className="flex items-center justify-between mt-1">
+            <p className="text-sm text-muted-foreground truncate">
+              {lastMessage}
+            </p>
+            {roomType === 'group' && (
+              <span className="text-xs text-muted-foreground flex items-center space-x-1">
+                <Users className="h-3 w-3" />
+                <span>{participantCount}</span>
+              </span>
+            )}
+          </div>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="w-80 bg-card/50 backdrop-blur-xl border-r border-border/50 flex flex-col h-full">
@@ -165,7 +177,12 @@ const Sidebar = () => {
       <div className="p-4 border-b border-border/50">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">Messages</h2>
-          <Button size="sm" className="security-glow">
+          <Button 
+            size="sm" 
+            className="security-glow"
+            onClick={() => setShowCreateRoom(true)}
+            title="Create new chat"
+          >
             <Plus className="h-4 w-4" />
           </Button>
         </div>
@@ -224,9 +241,35 @@ const Sidebar = () => {
           <h3 className="text-sm font-medium text-muted-foreground px-3 py-2">
             {activeTab === 'chats' ? 'Group Chats' : 'Channels'}
           </h3>
-          {mockRooms.map((room) => (
-            <RoomItem key={room.id} room={room} onClick={joinRoom} />
-          ))}
+          {/* Show real rooms from API */}
+          {rooms && rooms.length > 0 ? (
+            rooms
+              .filter(room => (room.type || 'direct') === (activeTab === 'chats' ? 'group' : 'group'))
+              .map((room) => (
+                <RoomItem key={room.id || room._id} room={room} onClick={joinRoom} />
+              ))
+          ) : (
+            // Fallback to mock rooms if no real rooms
+            mockRooms.map((room) => (
+              <RoomItem key={room.id} room={room} onClick={joinRoom} />
+            ))
+          )}
+          
+          {/* Show direct messages separately */}
+          {activeTab === 'chats' && rooms && rooms.length > 0 && (
+            <>
+              <Separator className="my-2" />
+              <h3 className="text-sm font-medium text-muted-foreground px-3 py-2">
+                Direct Messages
+              </h3>
+              {rooms
+                .filter(room => (room.type || 'direct') === 'direct')
+                .map((room) => (
+                  <RoomItem key={room.id || room._id} room={room} onClick={joinRoom} />
+                ))
+              }
+            </>
+          )}
         </div>
       </ScrollArea>
 
@@ -243,6 +286,11 @@ const Sidebar = () => {
           </Badge>
         </div>
       </div>
+
+      {/* Create Room Modal */}
+      {showCreateRoom && (
+        <CreateRoom onClose={() => setShowCreateRoom(false)} />
+      )}
     </div>
   );
 };

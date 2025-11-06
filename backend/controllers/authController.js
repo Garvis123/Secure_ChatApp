@@ -648,11 +648,61 @@ export const resetPassword = async (req, res) => {
   }
 };
 
+// Search users
+export const searchUsers = async (req, res) => {
+  try {
+    const { query } = req.query;
+    const currentUserId = req.user.userId;
+
+    if (!query || query.trim().length < 2) {
+      return res.json({
+        success: true,
+        data: { users: [] }
+      });
+    }
+
+    const searchRegex = new RegExp(query.trim(), 'i');
+    const users = await User.find({
+      $and: [
+        { _id: { $ne: currentUserId } }, // Exclude current user
+        {
+          $or: [
+            { username: searchRegex },
+            { email: searchRegex }
+          ]
+        }
+      ]
+    })
+    .select('username email publicKey isOnline lastLogin')
+    .limit(20);
+
+    res.json({
+      success: true,
+      data: {
+        users: users.map(user => ({
+          id: user._id,
+          username: user.username,
+          email: user.email,
+          publicKey: user.publicKey,
+          isOnline: user.isOnline,
+          lastLogin: user.lastLogin
+        }))
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to search users',
+      error: error.message
+    });
+  }
+};
+
 // Update user profile
 export const updateProfile = async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { username, email, publicKey } = req.body;
+    const { username, email, publicKey, avatar } = req.body;
 
     const user = await User.findById(userId);
     if (!user) {
@@ -688,6 +738,10 @@ export const updateProfile = async (req, res) => {
       user.publicKey = publicKey;
     }
 
+    if (avatar !== undefined) {
+      user.avatar = avatar || null;
+    }
+
     await user.save();
 
     res.json({
@@ -698,7 +752,13 @@ export const updateProfile = async (req, res) => {
           id: user._id,
           username: user.username,
           email: user.email,
-          publicKey: user.publicKey
+          publicKey: user.publicKey,
+          avatar: user.avatar,
+          twoFactorEnabled: user.twoFactorEnabled,
+          emailOTPEnabled: user.emailOTPEnabled,
+          createdAt: user.createdAt,
+          lastLogin: user.lastLogin,
+          rooms: user.rooms
         }
       }
     });

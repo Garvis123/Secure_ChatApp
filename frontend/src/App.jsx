@@ -14,6 +14,7 @@ import Register from "./components/auth/Register";
 import TwoFactorAuth from "./components/auth/TwoFactorAuth";
 import EmailOTP from "./components/auth/EmailOTP";
 import Dashboard from "./pages/Dashboard";
+import AdminDashboard from "./pages/AdminDashboard";
 import ProtectedRoute from "./components/common/ProtectedRoute";
 import ForgotPassword from "./pages/ForgetPassword";
 
@@ -26,7 +27,12 @@ const App = () => (
         <ChatProvider>
           <Toaster />
           <Sonner />
-          <BrowserRouter>
+          <BrowserRouter
+            future={{
+              v7_startTransition: true,
+              v7_relativeSplatPath: true,
+            }}
+          >
             <Routes>
               {/* Public Routes */}
               <Route path="/login" element={<Login />} />
@@ -41,6 +47,11 @@ const App = () => (
               <Route path="/dashboard" element={
                 <ProtectedRoute>
                   <Dashboard />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin" element={
+                <ProtectedRoute>
+                  <AdminDashboard />
                 </ProtectedRoute>
               } />
               

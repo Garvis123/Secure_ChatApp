@@ -16,7 +16,8 @@ import {
   updateProfile,
   requestPasswordReset,
   verifyPasswordResetOTP,
-  resetPassword
+  resetPassword,
+  searchUsers
 } from '../controllers/authController.js';
 import { authenticateToken } from '../middleware/auth.js';
 
@@ -36,6 +37,7 @@ router.post('/reset-password', resetPassword);
 router.post('/logout', authenticateToken, logout);
 router.get('/profile', authenticateToken, getProfile);
 router.put('/profile', authenticateToken, updateProfile);
+router.get('/search-users', authenticateToken, searchUsers);
 
 // 2FA routes
 router.post('/2fa/enable', authenticateToken, enable2FA);

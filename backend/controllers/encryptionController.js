@@ -1,6 +1,6 @@
 import Session from '../models/Session.js';
 import Room from '../models/Room.js';
-import { generateDHParams, verifyZKProof } from '../utils/crypto.js';
+import { generateDHParams, verifyZKProof, generateZKProof } from '../utils/crypto.js';
 import crypto from 'crypto';
 
 // Initiate key exchange
@@ -214,17 +214,56 @@ export const generateDHParameters = async (req, res) => {
   }
 };
 
+// Generate zero-knowledge proof
+export const generateZeroKnowledgeProof = async (req, res) => {
+  try {
+    const { privateKey, challenge, publicKey } = req.body;
+
+    if (!privateKey || !challenge || !publicKey) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: privateKey, challenge, publicKey'
+      });
+    }
+
+    const proof = generateZKProof(privateKey, challenge, publicKey);
+
+    res.json({
+      success: true,
+      data: {
+        proof,
+        challenge
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'ZK proof generation failed',
+      error: error.message
+    });
+  }
+};
+
 // Verify zero-knowledge proof
 export const verifyZeroKnowledge = async (req, res) => {
   try {
-    const { proof, challenge, publicKey } = req.body;
+    const { commitment, response, challenge, publicKey } = req.body;
 
+    if (!commitment || !response || !challenge || !publicKey) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: commitment, response, challenge, publicKey'
+      });
+    }
+
+    const proof = { commitment, response };
     const isValid = verifyZKProof(proof, challenge, publicKey);
 
     res.json({
       success: true,
       data: {
-        isValid
+        isValid,
+        verified: isValid
       }
     });
   } catch (error) {

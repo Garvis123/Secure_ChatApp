@@ -11,17 +11,11 @@ const MessageBox = ({ message, isOwn }) => {
   const [timeLeft, setTimeLeft] = useState(null);
 
   useEffect(() => {
-    // Auto-decrypt message (placeholder logic)
+    // Message is already decrypted when loaded from API
+    // Just set the content directly
     if (message.content) {
-      try {
-        // Placeholder decryption (base64 decode)
-        const decoded = atob(message.content);
-        setDecryptedContent(decoded);
-        setIsDecrypted(true);
-      } catch (error) {
-        setDecryptedContent(message.content);
-        setIsDecrypted(true);
-      }
+      setDecryptedContent(message.content);
+      setIsDecrypted(true);
     }
   }, [message.content]);
 

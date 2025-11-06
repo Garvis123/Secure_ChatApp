@@ -4,15 +4,28 @@ import User from '../models/User.js';
 
 export const chatHandler = (io, socket) => {
   // Join room
-  socket.on('join-room', async ({ roomId, userId }) => {
+  socket.on('join-room', async ({ roomId }) => {
     try {
+      // Use userId from socket authentication (secure - not from client)
+      const userId = socket.userId;
+      
+      if (!userId) {
+        socket.emit('error', { message: 'Authentication required' });
+        return;
+      }
+
+      if (!roomId) {
+        socket.emit('error', { message: 'Room ID required' });
+        return;
+      }
+
       const room = await Room.findOne({
         _id: roomId,
         'participants.userId': userId
       });
 
       if (!room) {
-        socket.emit('error', { message: 'Access denied' });
+        socket.emit('error', { message: 'Access denied: You are not a participant of this room' });
         return;
       }
 
@@ -24,6 +37,7 @@ export const chatHandler = (io, socket) => {
       // Notify others
       socket.to(roomId).emit('user-joined', {
         userId,
+        username: socket.username,
         timestamp: new Date()
       });
 
@@ -33,40 +47,71 @@ export const chatHandler = (io, socket) => {
         participants: room.participants
       });
     } catch (error) {
-      socket.emit('error', { message: error.message });
+      console.error('Error joining room:', error);
+      socket.emit('error', { message: error.message || 'Failed to join room' });
     }
   });
 
   // Leave room
-  socket.on('leave-room', async ({ roomId, userId }) => {
+  socket.on('leave-room', async ({ roomId }) => {
     try {
+      const userId = socket.userId;
+      
+      if (!userId || !roomId) {
+        socket.emit('error', { message: 'Invalid request' });
+        return;
+      }
+
       socket.leave(roomId);
       
       socket.to(roomId).emit('user-left', {
         userId,
+        username: socket.username,
         timestamp: new Date()
       });
     } catch (error) {
-      socket.emit('error', { message: error.message });
+      console.error('Error leaving room:', error);
+      socket.emit('error', { message: error.message || 'Failed to leave room' });
     }
   });
 
   // Send message
-  socket.on('send-message', async ({ roomId, userId, encryptedContent, iv, type, metadata }) => {
+  socket.on('send-message', async ({ roomId, encryptedContent, iv, type, metadata }) => {
     try {
+      // Use userId from socket authentication (secure - not from client)
+      const userId = socket.userId;
+      
+      if (!userId) {
+        socket.emit('error', { message: 'Authentication required' });
+        return;
+      }
+
+      if (!roomId || !encryptedContent || !iv) {
+        socket.emit('error', { message: 'Missing required fields' });
+        return;
+      }
+
       const room = await Room.findOne({
         _id: roomId,
         'participants.userId': userId
       });
 
       if (!room) {
-        socket.emit('error', { message: 'Access denied' });
+        socket.emit('error', { message: 'Access denied: You are not a participant of this room' });
         return;
+      }
+
+      // Get username from socket or fetch from database
+      let senderUsername = socket.username;
+      if (!senderUsername) {
+        const user = await User.findById(userId);
+        senderUsername = user?.username || 'Unknown';
       }
 
       const message = new Message({
         roomId,
         senderId: userId,
+        senderUsername: senderUsername,
         encryptedContent,
         iv,
         type: type || 'text',
@@ -103,8 +148,14 @@ export const chatHandler = (io, socket) => {
   });
 
   // Delete message
-  socket.on('delete-message', async ({ messageId, roomId, userId }) => {
+  socket.on('delete-message', async ({ messageId, roomId }) => {
     try {
+      const userId = socket.userId;
+      if (!userId) {
+        socket.emit('error', { message: 'Authentication required' });
+        return;
+      }
+
       const message = await Message.findOne({
         _id: messageId,
         senderId: userId
@@ -127,14 +178,20 @@ export const chatHandler = (io, socket) => {
   });
 
   // Typing indicator
-  socket.on('typing', ({ roomId, userId, username }) => {
+  socket.on('typing', ({ roomId, username }) => {
+    const userId = socket.userId;
+    if (!userId || !roomId) return;
+    
     socket.to(roomId).emit('user-typing', {
       userId,
-      username
+      username: username || socket.username
     });
   });
 
-  socket.on('stop-typing', ({ roomId, userId }) => {
+  socket.on('stop-typing', ({ roomId }) => {
+    const userId = socket.userId;
+    if (!userId || !roomId) return;
+    
     socket.to(roomId).emit('user-stop-typing', {
       userId
     });

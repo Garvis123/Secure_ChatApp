@@ -63,7 +63,9 @@ const Login = () => {
   };
 
   const handleGoogleLogin = () => {
-    window.location.href = 'http://localhost:5000/api/auth/google';
+    import('../../config/api').then(({ getServerUrl }) => {
+      window.location.href = getServerUrl('/api/auth/google');
+    });
   };
 
   return (

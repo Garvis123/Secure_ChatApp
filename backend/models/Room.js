@@ -54,6 +54,10 @@ const roomSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  encryptionKey: {
+    type: String,
+    default: null
+  },
   lastMessage: {
     content: String,
     senderId: mongoose.Schema.Types.ObjectId,
