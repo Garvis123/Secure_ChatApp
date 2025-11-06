@@ -5,6 +5,7 @@ import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { useChat } from '../../context/ChatContext';
 import { useAuth } from '../../context/AuthContext';
+import { getApiUrl } from '../../config/api';
 
 const FileUpload = ({ roomId, onClose, onUpload }) => {
   const [dragOver, setDragOver] = useState(false);
@@ -33,7 +34,7 @@ const FileUpload = ({ roomId, onClose, onUpload }) => {
       // Get auth token
       const authToken = token || localStorage.getItem('token');
       
-      const response = await fetch('/api/file/upload', {
+      const response = await fetch(getApiUrl('/api/file/upload'), {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${authToken}`

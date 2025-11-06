@@ -1,12 +1,12 @@
-const API_BASE_URL = '/api';
+import { getApiUrl } from '../config/api.js';
 
 class ApiClient {
   constructor() {
-    this.baseURL = API_BASE_URL;
+    // No baseURL needed - using getApiUrl for all requests
   }
 
   async request(endpoint, options = {}, retry = true) {
-    const url = `${this.baseURL}${endpoint}`;
+    const url = getApiUrl(endpoint.startsWith('/api') ? endpoint : `/api${endpoint}`);
     const token = localStorage.getItem('token');
     
     const config = {
@@ -27,7 +27,7 @@ class ApiClient {
         try {
           const refreshToken = localStorage.getItem('refreshToken');
           if (refreshToken) {
-            const refreshResponse = await fetch(`${this.baseURL}/auth/refresh-token`, {
+            const refreshResponse = await fetch(getApiUrl('/api/auth/refresh-token'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ refreshToken }),
