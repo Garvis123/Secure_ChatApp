@@ -114,7 +114,10 @@ export const ChatProvider = ({ children }) => {
     // Listen for incoming messages (backend emits 'new-message')
     socket.on('new-message', (messageData) => {
       console.log('Received new message via socket:', messageData);
-      handleIncomingMessage(messageData);
+      // Handle async function properly to avoid unhandled promise rejections
+      handleIncomingMessage(messageData).catch((error) => {
+        console.error('Error handling incoming message:', error);
+      });
     });
 
     // Listen for typing indicators
@@ -194,7 +197,12 @@ export const ChatProvider = ({ children }) => {
         id: messageId || messageData.messageId || `msg-${Date.now()}`,
         roomId,
         senderId: senderId || messageData.senderId,
+        senderName: messageData.senderUsername || rest.senderName || 'Unknown',
         content: decryptedContent,
+        type: rest.type || messageData.type || 'text',
+        fileMetadata: rest.fileMetadata || messageData.fileMetadata,
+        steganographyEnabled: rest.steganographyEnabled || messageData.steganographyEnabled || false,
+        selfDestruct: rest.selfDestruct || messageData.selfDestruct,
         encryptedContent, // Keep for reference
         iv, // Keep for reference
         timestamp: timestamp || messageData.timestamp || new Date().toISOString(),
@@ -248,7 +256,13 @@ export const ChatProvider = ({ children }) => {
       }
 
       if (data.success && data.data.room) {
-        const newRoom = data.data.room;
+        const newRoom = {
+          ...data.data.room,
+          id: data.data.room.id || data.data.room._id,
+          name: data.data.room.name || 'New Room',
+          type: data.data.room.type || 'direct',
+          participants: data.data.room.participants || []
+        };
         
         // Store encryption key
         dispatch({ 
@@ -256,8 +270,11 @@ export const ChatProvider = ({ children }) => {
           payload: { roomId: newRoom.id, key: keyBase64 } 
         });
 
-        // Add room to list
-        dispatch({ type: 'SET_ROOMS', payload: [...state.rooms, newRoom] });
+        // Add room to list (avoid duplicates)
+        const roomExists = state.rooms.some(r => (r.id || r._id) === newRoom.id);
+        if (!roomExists) {
+          dispatch({ type: 'SET_ROOMS', payload: [...state.rooms, newRoom] });
+        }
         
         // Join the room
         joinRoom(newRoom.id);
@@ -412,7 +429,12 @@ export const ChatProvider = ({ children }) => {
         iv: ivBase64,
         type: options.type || 'text',
         metadata: {
-          selfDestructTime: options.selfDestruct,
+          selfDestruct: options.selfDestruct ? {
+            enabled: true,
+            timer: options.selfDestruct
+          } : { enabled: false },
+          fileMetadata: options.fileMetadata,
+          steganographyEnabled: options.steganographyEnabled || false,
           timestamp: Date.now()
         }
       };
@@ -427,7 +449,12 @@ export const ChatProvider = ({ children }) => {
           iv: ivBase64,
           type: options.type || 'text',
           metadata: {
-            selfDestructTime: options.selfDestruct,
+            selfDestruct: options.selfDestruct ? {
+              enabled: true,
+              timer: options.selfDestruct
+            } : { enabled: false },
+            fileMetadata: options.fileMetadata,
+            steganographyEnabled: options.steganographyEnabled || false,
             timestamp: Date.now()
           }
         });

@@ -243,32 +243,45 @@ const Sidebar = () => {
           </h3>
           {/* Show real rooms from API */}
           {rooms && rooms.length > 0 ? (
-            rooms
-              .filter(room => (room.type || 'direct') === (activeTab === 'chats' ? 'group' : 'group'))
-              .map((room) => (
-                <RoomItem key={room.id || room._id} room={room} onClick={joinRoom} />
-              ))
-          ) : (
-            // Fallback to mock rooms if no real rooms
-            mockRooms.map((room) => (
-              <RoomItem key={room.id} room={room} onClick={joinRoom} />
-            ))
-          )}
-          
-          {/* Show direct messages separately */}
-          {activeTab === 'chats' && rooms && rooms.length > 0 && (
             <>
-              <Separator className="my-2" />
-              <h3 className="text-sm font-medium text-muted-foreground px-3 py-2">
-                Direct Messages
-              </h3>
+              {/* Show direct messages first */}
+              {activeTab === 'chats' && (
+                <>
+                  {rooms
+                    .filter(room => (room.type || 'direct') === 'direct')
+                    .map((room) => (
+                      <RoomItem key={room.id || room._id} room={room} onClick={joinRoom} />
+                    ))
+                  }
+                  {rooms.some(room => (room.type || 'direct') === 'direct') && 
+                   rooms.some(room => (room.type || 'direct') === 'group') && (
+                    <Separator className="my-2" />
+                  )}
+                </>
+              )}
+              {/* Show group rooms */}
               {rooms
-                .filter(room => (room.type || 'direct') === 'direct')
+                .filter(room => (room.type || 'direct') === 'group')
                 .map((room) => (
                   <RoomItem key={room.id || room._id} room={room} onClick={joinRoom} />
                 ))
               }
             </>
+          ) : (
+            // Show message when no rooms exist
+            <div className="text-center py-8 px-4">
+              <p className="text-sm text-muted-foreground mb-4">
+                No conversations yet
+              </p>
+              <Button 
+                size="sm" 
+                variant="outline"
+                onClick={() => setShowCreateRoom(true)}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Start a conversation
+              </Button>
+            </div>
           )}
         </div>
       </ScrollArea>

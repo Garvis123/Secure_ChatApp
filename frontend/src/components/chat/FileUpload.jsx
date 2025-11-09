@@ -121,6 +121,7 @@ const FileUpload = ({ roomId, onClose, onUpload }) => {
               type="file"
               id="file-upload"
               className="hidden"
+              accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar"
               onChange={(e) => handleFileSelect(e.target.files[0])}
               disabled={uploading}
             />

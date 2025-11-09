@@ -28,10 +28,32 @@ const ProfileModal = ({ onClose }) => {
   });
 
   useEffect(() => {
-    // Fetch user profile data
+    // Initialize with user data from context
+    if (user) {
+      setProfileData({
+        username: user.username || '',
+        email: user.email || '',
+        avatar: user.avatar || ''
+      });
+      setUserStats({
+        totalRooms: user.rooms?.length || 0,
+        totalMessages: 0, // Would need separate endpoint
+        accountCreated: user.createdAt || new Date().toISOString(),
+        lastLogin: user.lastLogin || null,
+        twoFactorEnabled: user.twoFactorEnabled || false,
+        emailOTPEnabled: user.emailOTPEnabled || false
+      });
+    }
+
+    // Fetch latest user profile data
     const fetchProfile = async () => {
       try {
         const authToken = token || localStorage.getItem('token');
+        if (!authToken) {
+          console.warn('No auth token available');
+          return;
+        }
+
         const response = await fetch(getApiUrl('/api/auth/profile'), {
           headers: {
             'Authorization': `Bearer ${authToken}`
@@ -56,21 +78,40 @@ const ProfileModal = ({ onClose }) => {
               emailOTPEnabled: userData.emailOTPEnabled || false
             });
           }
+        } else if (response.status === 401) {
+          console.warn('Unauthorized - token may be expired');
         }
       } catch (error) {
         console.error('Failed to fetch profile:', error);
+        // Don't show alert on initial load failure
       }
     };
 
-    if (user) {
+    if (user && token) {
       fetchProfile();
     }
   }, [user, token]);
 
   const handleSave = async () => {
+    // Validation
+    if (!profileData.username || profileData.username.trim().length < 3) {
+      alert('Username must be at least 3 characters long');
+      return;
+    }
+
+    if (!profileData.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profileData.email)) {
+      alert('Please enter a valid email address');
+      return;
+    }
+
     setIsLoading(true);
     try {
       const authToken = token || localStorage.getItem('token');
+      if (!authToken) {
+        alert('Authentication required. Please log in again.');
+        return;
+      }
+
       const response = await fetch(getApiUrl('/api/auth/profile'), {
         method: 'PUT',
         headers: {
@@ -78,9 +119,9 @@ const ProfileModal = ({ onClose }) => {
           'Authorization': `Bearer ${authToken}`
         },
         body: JSON.stringify({
-          username: profileData.username,
-          email: profileData.email,
-          avatar: profileData.avatar
+          username: profileData.username.trim(),
+          email: profileData.email.trim(),
+          avatar: profileData.avatar?.trim() || null
         })
       });
 
@@ -91,18 +132,26 @@ const ProfileModal = ({ onClose }) => {
           // Update user in localStorage
           const updatedUser = { ...user, ...data.data.user };
           localStorage.setItem('user', JSON.stringify(updatedUser));
-          // Trigger a page refresh to update AuthContext
-          setTimeout(() => {
-            window.location.reload();
-          }, 500);
+          // Update local state
+          setProfileData({
+            username: data.data.user.username || profileData.username,
+            email: data.data.user.email || profileData.email,
+            avatar: data.data.user.avatar || profileData.avatar
+          });
+          // Show success message
+          alert('Profile updated successfully!');
+          // Optionally refresh to update AuthContext
+          // window.location.reload();
+        } else {
+          alert(data.message || 'Failed to update profile');
         }
       } else {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({ message: 'Failed to update profile' }));
         alert(errorData.message || 'Failed to update profile');
       }
     } catch (error) {
       console.error('Failed to update profile:', error);
-      alert('Failed to update profile. Please try again.');
+      alert('Failed to update profile. Please check your connection and try again.');
     } finally {
       setIsLoading(false);
     }
@@ -120,22 +169,46 @@ const ProfileModal = ({ onClose }) => {
 
   const handleBackdropClick = (e) => {
     // Close modal if clicking on the backdrop (not the card itself)
-    if (e.target === e.currentTarget && !isLoading) {
+    if (e.target === e.currentTarget && !isLoading && !isEditing) {
       onClose();
     }
   };
+
+  // Handle ESC key to close modal
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === 'Escape' && !isLoading && !isEditing) {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isLoading, isEditing, onClose]);
 
   return (
     <div 
       className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
       onClick={handleBackdropClick}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="profile-modal-title"
     >
       <Card 
         className="w-full max-w-2xl bg-gradient-card border-border/50 shadow-card max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside the card
+        onClick={(e) => {
+          // Prevent closing when clicking inside the card
+          e.stopPropagation();
+        }}
+        onMouseDown={(e) => {
+          // Prevent closing when clicking inside the card
+          e.stopPropagation();
+        }}
       >
         <CardHeader className="flex flex-row items-center justify-between border-b">
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle id="profile-modal-title" className="flex items-center gap-2">
             <User className="h-5 w-5" />
             Profile
           </CardTitle>

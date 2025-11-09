@@ -108,14 +108,18 @@ export const chatHandler = (io, socket) => {
         senderUsername = user?.username || 'Unknown';
       }
 
+      // Create message with all metadata properly structured
       const message = new Message({
         roomId,
         senderId: userId,
         senderUsername: senderUsername,
         encryptedContent,
         iv,
-        type: type || 'text',
-        metadata: metadata || {}
+        messageType: type || 'text',
+        fileMetadata: metadata?.fileMetadata || undefined,
+        steganographyEnabled: metadata?.steganographyEnabled || false,
+        selfDestruct: metadata?.selfDestruct || { enabled: false },
+        signature: metadata?.signature || undefined
       });
 
       await message.save();
@@ -125,22 +129,34 @@ export const chatHandler = (io, socket) => {
         messageId: message._id,
         roomId,
         senderId: userId,
+        senderUsername: senderUsername,
         encryptedContent,
         iv,
-        type: message.type,
-        metadata: message.metadata,
-        timestamp: message.createdAt
+        type: message.messageType || type || 'text',
+        fileMetadata: message.fileMetadata,
+        steganographyEnabled: message.steganographyEnabled,
+        selfDestruct: message.selfDestruct,
+        signature: message.signature,
+        timestamp: message.createdAt || new Date()
       });
 
-      // Handle self-destruct
-      if (metadata?.selfDestruct) {
+      // Handle self-destruct timer
+      if (metadata?.selfDestruct?.enabled && metadata?.selfDestruct?.timer) {
+        const timerSeconds = metadata.selfDestruct.timer;
         setTimeout(async () => {
-          await Message.findByIdAndDelete(message._id);
-          io.to(roomId).emit('message-deleted', {
-            messageId: message._id,
-            roomId
-          });
-        }, metadata.selfDestructTime * 1000);
+          try {
+            const msg = await Message.findById(message._id);
+            if (msg) {
+              await Message.findByIdAndDelete(message._id);
+              io.to(roomId).emit('message-deleted', {
+                messageId: message._id,
+                roomId
+              });
+            }
+          } catch (error) {
+            console.error('Error deleting self-destruct message:', error);
+          }
+        }, timerSeconds * 1000);
       }
     } catch (error) {
       socket.emit('error', { message: error.message });
@@ -195,6 +211,56 @@ export const chatHandler = (io, socket) => {
     socket.to(roomId).emit('user-stop-typing', {
       userId
     });
+  });
+
+  // Screenshot detection handler
+  socket.on('screenshot-detected', async ({ roomId, threatType, timestamp }) => {
+    try {
+      const userId = socket.userId;
+      
+      if (!userId || !roomId) {
+        return;
+      }
+
+      // Verify user is in room
+      const room = await Room.findOne({
+        _id: roomId,
+        'participants.userId': userId
+      });
+
+      if (!room) {
+        return;
+      }
+
+      // Check if screenshot alerts are enabled for this room
+      if (room.settings?.screenshotAlert !== false) {
+        // Log screenshot attempt (you can extend this to save to database)
+        console.warn(`⚠️ Screenshot detected: User ${userId} (${socket.username}) in room ${roomId}, Type: ${threatType}`);
+        
+        // Notify room participants (except the one who triggered it)
+        socket.to(roomId).emit('screenshot-alert', {
+          userId,
+          username: socket.username,
+          threatType,
+          timestamp: timestamp || new Date(),
+          message: 'A screenshot attempt was detected in this secure chat'
+        });
+
+        // Log to anomaly detection if available
+        try {
+          const { logActivity } = await import('../utils/anomalyDetection.js');
+          logActivity(userId, 'screenshot_detected', {
+            roomId,
+            threatType,
+            timestamp: timestamp || new Date()
+          });
+        } catch (err) {
+          // Anomaly detection not critical, continue
+        }
+      }
+    } catch (error) {
+      console.error('Screenshot detection logging error:', error);
+    }
   });
 
   // Handle disconnect

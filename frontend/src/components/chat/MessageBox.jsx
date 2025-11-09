@@ -22,19 +22,26 @@ const MessageBox = ({ message, isOwn }) => {
   useEffect(() => {
     // Handle self-destruct timer
     if (message.selfDestruct) {
-      const endTime = new Date(message.timestamp).getTime() + (message.selfDestruct * 1000);
-      const timer = setInterval(() => {
-        const now = Date.now();
-        const remaining = Math.max(0, endTime - now);
-        setTimeLeft(Math.ceil(remaining / 1000));
-        
-        if (remaining <= 0) {
-          clearInterval(timer);
-          setTimeLeft(0);
-        }
-      }, 1000);
+      // Handle both object format {enabled: true, timer: seconds} and number format
+      const timerSeconds = typeof message.selfDestruct === 'object' 
+        ? (message.selfDestruct.enabled ? message.selfDestruct.timer : 0)
+        : message.selfDestruct;
+      
+      if (timerSeconds > 0) {
+        const endTime = new Date(message.timestamp).getTime() + (timerSeconds * 1000);
+        const timer = setInterval(() => {
+          const now = Date.now();
+          const remaining = Math.max(0, endTime - now);
+          setTimeLeft(Math.ceil(remaining / 1000));
+          
+          if (remaining <= 0) {
+            clearInterval(timer);
+            setTimeLeft(0);
+          }
+        }, 1000);
 
-      return () => clearInterval(timer);
+        return () => clearInterval(timer);
+      }
     }
   }, [message.selfDestruct, message.timestamp]);
 
@@ -107,7 +114,7 @@ const MessageBox = ({ message, isOwn }) => {
                   E2E
                 </Badge>
               </div>
-              {message.selfDestruct && timeLeft > 0 && (
+              {message.selfDestruct && timeLeft !== null && timeLeft > 0 && (
                 <Badge variant="outline" className="text-xs h-5">
                   <Clock className="h-2 w-2 mr-1" />
                   {timeLeft}s
@@ -131,21 +138,39 @@ const MessageBox = ({ message, isOwn }) => {
                   ) : message.type === 'file' ? (
                     <div className="flex items-center space-x-2 p-2 rounded bg-muted/20">
                       <File className="h-5 w-5" />
-                      <div>
-                        <p className="text-sm font-medium">{message.fileName}</p>
-                        <p className="text-xs text-muted-foreground">{message.fileSize}</p>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium">
+                          {message.fileMetadata?.fileName || message.fileName || 'File'}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {message.fileMetadata?.fileSize 
+                            ? `${(message.fileMetadata.fileSize / 1024).toFixed(2)} KB`
+                            : message.fileSize || 'Unknown size'}
+                        </p>
                       </div>
-                      <Button size="sm" variant="outline">
-                        Download
-                      </Button>
+                      {message.fileMetadata?.url && (
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={() => window.open(message.fileMetadata.url, '_blank')}
+                        >
+                          Download
+                        </Button>
+                      )}
                     </div>
                   ) : message.type === 'image' ? (
                     <div className="rounded-lg overflow-hidden">
-                      <img 
-                        src={message.imageUrl} 
-                        alt="Shared image"
-                        className="max-w-full h-auto"
-                      />
+                      {message.fileMetadata?.url || message.imageUrl ? (
+                        <img 
+                          src={message.fileMetadata?.url || message.imageUrl} 
+                          alt="Shared image"
+                          className="max-w-full h-auto rounded"
+                        />
+                      ) : (
+                        <div className="p-4 text-center text-muted-foreground">
+                          Image not available
+                        </div>
+                      )}
                     </div>
                   ) : null}
                 </div>
