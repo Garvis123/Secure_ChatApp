@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react';
-import { Clock, Shield, File, Image, Eye, EyeOff } from 'lucide-react';
+import { Clock, Shield, File, Image, Eye, EyeOff, Check, CheckCheck } from 'lucide-react';
 import { Avatar, AvatarFallback } from '../ui/avatar';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
+import { useChat } from '../../context/ChatContext';
+import { useAuth } from '../../context/AuthContext';
 
 const MessageBox = ({ message, isOwn }) => {
+  const { markMessageAsRead } = useChat();
+  const { user } = useAuth();
   const [isDecrypted, setIsDecrypted] = useState(false);
   const [decryptedContent, setDecryptedContent] = useState('');
   const [timeLeft, setTimeLeft] = useState(null);
@@ -18,6 +22,29 @@ const MessageBox = ({ message, isOwn }) => {
       setIsDecrypted(true);
     }
   }, [message.content]);
+
+  // Mark message as read when it's displayed (only for messages not sent by current user)
+  useEffect(() => {
+    if (!isOwn && message.id && user?.id && isDecrypted) {
+      // Check if message is already read by current user
+      const isRead = message.readBy?.some(read => 
+        (read.userId?.toString() === user.id?.toString()) || 
+        (read.userId?.toString() === user._id?.toString()) ||
+        (read.userId?.toString() === user.userId?.toString())
+      );
+      
+      if (!isRead && markMessageAsRead) {
+        // Mark as read after a short delay to ensure message is visible
+        const timer = setTimeout(() => {
+          markMessageAsRead(message.id).catch(err => {
+            console.error('Failed to mark message as read:', err);
+          });
+        }, 500);
+        
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [message.id, message.readBy, isOwn, user, isDecrypted, markMessageAsRead]);
 
   useEffect(() => {
     // Handle self-destruct timer
@@ -180,14 +207,40 @@ const MessageBox = ({ message, isOwn }) => {
 
           {/* Message Footer */}
           <div className={cn(
-            "flex items-center space-x-2 text-xs text-muted-foreground px-1",
-            isOwn && "justify-end"
+            "flex items-center space-x-2 text-xs px-1",
+            isOwn ? "justify-end text-primary-foreground/70" : "text-muted-foreground"
           )}>
             <span>{formatTime(message.timestamp)}</span>
             {isOwn && (
               <div className="flex items-center space-x-1">
-                <div className="h-1 w-1 rounded-full bg-success"></div>
-                <span>Delivered</span>
+                {(() => {
+                  // Check if message has been read by at least one other participant
+                  const readByOthers = message.readBy?.filter(read => {
+                    const readUserId = read.userId?.toString();
+                    const currentUserId = user?.id?.toString() || user?._id?.toString() || user?.userId?.toString();
+                    return readUserId && readUserId !== currentUserId;
+                  }) || [];
+                  
+                  const isSeen = readByOthers.length > 0;
+                  
+                  if (isSeen) {
+                    // Blue double check (seen)
+                    return (
+                      <div className="flex items-center space-x-1">
+                        <CheckCheck className="h-3.5 w-3.5 text-blue-500" />
+                        <span className="text-blue-500">Seen</span>
+                      </div>
+                    );
+                  } else {
+                    // Single check (delivered)
+                    return (
+                      <div className="flex items-center space-x-1">
+                        <Check className="h-3.5 w-3.5" />
+                        <span>Delivered</span>
+                      </div>
+                    );
+                  }
+                })()}
               </div>
             )}
           </div>

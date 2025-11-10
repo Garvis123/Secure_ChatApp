@@ -5,6 +5,8 @@ import { TooltipProvider } from "./components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "./context/AuthContext";
 import { ChatProvider } from "./context/ChatContext";
+import { NotificationProvider } from "./context/NotificationContext";
+import NotificationToast from "./components/common/NotificationToast";
 import AuthCallback from './pages/AuthCallback';
 
 // Import components
@@ -24,9 +26,11 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <AuthProvider>
-        <ChatProvider>
-          <Toaster />
-          <Sonner />
+        <NotificationProvider>
+          <ChatProvider>
+            <Toaster />
+            <Sonner />
+            <NotificationToast />
           <BrowserRouter
             future={{
               v7_startTransition: true,
@@ -59,7 +63,8 @@ const App = () => (
               {/* <Route path="*" element={<NotFound />} /> */}
             </Routes>
           </BrowserRouter>
-        </ChatProvider>
+          </ChatProvider>
+        </NotificationProvider>
       </AuthProvider>
     </TooltipProvider>
   </QueryClientProvider>

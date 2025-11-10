@@ -4,6 +4,14 @@ import { useSocket } from '../hooks/useSocket';
 import * as CryptoUtils from '../utils/crypto';
 import { getApiUrl } from '../config/api';
 
+// Optional notification context import
+let useNotifications = null;
+try {
+  useNotifications = require('./NotificationContext').useNotifications;
+} catch (e) {
+  // NotificationContext not available
+}
+
 // Create the context
 const ChatContext = createContext();
 
@@ -106,6 +114,116 @@ export const ChatProvider = ({ children }) => {
   // Cache for imported CryptoKey objects to avoid repeated imports (performance optimization)
   const keyCacheRef = useRef(new Map());
 
+  // Get notifications context (optional - only if available)
+  let notifications = null;
+  try {
+    if (useNotifications) {
+      notifications = useNotifications();
+    }
+  } catch (e) {
+    // NotificationContext not available, continue without it
+  }
+  const addNotification = notifications?.addNotification;
+
+  // Use ref to access latest messages state without causing re-renders
+  const messagesRef = useRef(state.messages);
+  useEffect(() => {
+    messagesRef.current = state.messages;
+  }, [state.messages]);
+
+  // Handle incoming encrypted messages - using useCallback to avoid closure issues
+  const handleIncomingMessage = React.useCallback(async (messageData) => {
+    try {
+      const { roomId, encryptedContent, iv, senderId, messageId, timestamp, ...rest } = messageData;
+      
+      if (!roomId || !encryptedContent || !iv) {
+        console.error('Invalid message data received:', messageData);
+        return;
+      }
+
+      // Check if message already exists (deduplication) - use ref for latest state
+      const roomMessages = messagesRef.current[roomId] || [];
+      
+      // First, check if there's an optimistic message with same content to replace it
+      const optimisticIndex = roomMessages.findIndex(msg => 
+        msg.isOptimistic && 
+        msg.encryptedContent === encryptedContent && 
+        msg.iv === iv
+      );
+
+      // Check if message already exists (by messageId or content)
+      const messageExists = roomMessages.some(msg => {
+        // Skip optimistic messages in this check
+        if (msg.isOptimistic) return false;
+        // Check by messageId if available
+        if (messageId && (msg.id === messageId || msg._id === messageId)) {
+          return true;
+        }
+        // Check by encrypted content + iv (for deduplication)
+        if (msg.encryptedContent === encryptedContent && msg.iv === iv) {
+          return true;
+        }
+        return false;
+      });
+
+      if (messageExists && optimisticIndex === -1) {
+        console.log('Message already exists, skipping duplicate:', messageId || encryptedContent.substring(0, 20));
+        return;
+      }
+
+      // If we found an optimistic message, remove it first (will be replaced with real message)
+      if (optimisticIndex !== -1) {
+        dispatch({
+          type: 'REMOVE_MESSAGE',
+          roomId,
+          messageId: roomMessages[optimisticIndex].id
+        });
+      }
+      
+      // Get room key (cached for performance)
+      const roomKey = await getRoomKey(roomId);
+      
+      // Convert base64 to ArrayBuffer
+      const encryptedBuffer = CryptoUtils.base64ToArrayBuffer(encryptedContent);
+      const ivBuffer = CryptoUtils.base64ToArrayBuffer(iv);
+      
+      // Decrypt the message
+      const decryptedContent = await CryptoUtils.decryptMessage(
+        encryptedBuffer,
+        roomKey,
+        ivBuffer
+      );
+
+      const message = {
+        id: messageId || messageData.messageId || `msg-${Date.now()}`,
+        roomId,
+        senderId: senderId || messageData.senderId,
+        senderName: messageData.senderUsername || rest.senderName || 'Unknown',
+        content: decryptedContent,
+        type: rest.type || messageData.type || 'text',
+        fileMetadata: rest.fileMetadata || messageData.fileMetadata,
+        steganographyEnabled: rest.steganographyEnabled || messageData.steganographyEnabled || false,
+        selfDestruct: rest.selfDestruct || messageData.selfDestruct,
+        readBy: messageData.readBy || rest.readBy || [], // Include readBy for read receipts
+        encryptedContent, // Keep for reference
+        iv, // Keep for reference
+        timestamp: timestamp || messageData.timestamp || new Date().toISOString(),
+        ...rest
+      };
+
+      console.log('Adding message to room:', roomId, message);
+
+      dispatch({ 
+        type: 'ADD_MESSAGE', 
+        roomId, 
+        payload: message 
+      });
+
+    } catch (error) {
+      console.error('Failed to handle incoming message:', error);
+      console.error('Message data:', messageData);
+    }
+  }, []);
 
   // Initialize socket listeners
   useEffect(() => {
@@ -142,6 +260,89 @@ export const ChatProvider = ({ children }) => {
       console.log('User left room:', data);
     });
 
+    // Listen for message read status updates (real-time read receipts)
+    socket.on('message-read', ({ messageId, userId, readAt }) => {
+      // Find the message and update its read status
+      const roomId = Object.keys(messagesRef.current).find(rid => 
+        messagesRef.current[rid]?.some(msg => msg.id === messageId)
+      );
+      
+      if (roomId) {
+        const updatedMessages = messagesRef.current[roomId].map(msg => {
+          if (msg.id === messageId) {
+            const isAlreadyRead = msg.readBy?.some(read => 
+              read.userId?.toString() === userId?.toString()
+            );
+            
+            if (!isAlreadyRead) {
+              return {
+                ...msg,
+                readBy: [
+                  ...(msg.readBy || []),
+                  { userId, readAt: readAt || new Date() }
+                ]
+              };
+            }
+          }
+          return msg;
+        });
+        
+        dispatch({ 
+          type: 'SET_MESSAGES', 
+          roomId, 
+          payload: updatedMessages 
+        });
+      }
+    });
+
+    // Listen for room-created events (real-time notifications)
+    socket.on('room-created', (roomData) => {
+      console.log('New room created:', roomData);
+      
+      // Add room to state immediately (real-time update)
+      const newRoom = {
+        id: roomData.roomId,
+        _id: roomData.roomId,
+        name: roomData.roomName,
+        type: roomData.roomType,
+        participants: roomData.participants || [],
+        createdAt: roomData.createdAt,
+        encryptionEnabled: roomData.encryptionEnabled
+      };
+
+      // Check if room already exists
+      const roomExists = state.rooms.some(r => (r.id || r._id) === roomData.roomId);
+      if (!roomExists) {
+        dispatch({ type: 'SET_ROOMS', payload: [...state.rooms, newRoom] });
+      }
+
+      // Show notification
+      if (addNotification) {
+        const isDirect = roomData.roomType === 'direct';
+        const otherParticipant = roomData.participants?.find(
+          p => p.userId !== (user?.id || user?._id || user?.userId)
+        );
+        
+        addNotification({
+          type: 'room',
+          title: isDirect 
+            ? `${roomData.creatorName} started a chat with you`
+            : `${roomData.creatorName} added you to a group`,
+          message: isDirect
+            ? `You can now chat with ${roomData.creatorName}`
+            : `Group: ${roomData.roomName}`,
+          action: () => {
+            // Navigate to the room
+            dispatch({ type: 'SET_ACTIVE_ROOM', payload: roomData.roomId });
+            if (socket && user) {
+              socket.emit('join-room', { roomId: roomData.roomId });
+            }
+          },
+          actionLabel: 'Open Chat'
+        });
+      }
+    });
+
     // Listen for errors
     socket.on('error', (error) => {
       console.error('Socket error:', error);
@@ -163,65 +364,13 @@ export const ChatProvider = ({ children }) => {
       socket.off('room-joined');
       socket.off('user-joined');
       socket.off('user-left');
+      socket.off('message-read');
+      socket.off('room-created');
       socket.off('error');
       socket.off('connect');
       socket.off('disconnect');
     };
-  }, [socket]);
-
-  // Handle incoming encrypted messages
-  const handleIncomingMessage = async (messageData) => {
-    try {
-      const { roomId, encryptedContent, iv, senderId, messageId, timestamp, ...rest } = messageData;
-      
-      if (!roomId || !encryptedContent || !iv) {
-        console.error('Invalid message data received:', messageData);
-        return;
-      }
-      
-      // Get room key (cached for performance)
-      const roomKey = await getRoomKey(roomId);
-      
-      // Convert base64 to ArrayBuffer
-      const encryptedBuffer = CryptoUtils.base64ToArrayBuffer(encryptedContent);
-      const ivBuffer = CryptoUtils.base64ToArrayBuffer(iv);
-      
-      // Decrypt the message
-      const decryptedContent = await CryptoUtils.decryptMessage(
-        encryptedBuffer,
-        roomKey,
-        ivBuffer
-      );
-
-      const message = {
-        id: messageId || messageData.messageId || `msg-${Date.now()}`,
-        roomId,
-        senderId: senderId || messageData.senderId,
-        senderName: messageData.senderUsername || rest.senderName || 'Unknown',
-        content: decryptedContent,
-        type: rest.type || messageData.type || 'text',
-        fileMetadata: rest.fileMetadata || messageData.fileMetadata,
-        steganographyEnabled: rest.steganographyEnabled || messageData.steganographyEnabled || false,
-        selfDestruct: rest.selfDestruct || messageData.selfDestruct,
-        encryptedContent, // Keep for reference
-        iv, // Keep for reference
-        timestamp: timestamp || messageData.timestamp || new Date().toISOString(),
-        ...rest
-      };
-
-      console.log('Adding message to room:', roomId, message);
-
-      dispatch({ 
-        type: 'ADD_MESSAGE', 
-        roomId, 
-        payload: message 
-      });
-
-    } catch (error) {
-      console.error('Failed to handle incoming message:', error);
-      console.error('Message data:', messageData);
-    }
-  };
+  }, [socket, handleIncomingMessage]);
 
   // Room management
   const createRoom = async (participantIds, roomName = 'New Room') => {
@@ -270,11 +419,20 @@ export const ChatProvider = ({ children }) => {
           payload: { roomId: newRoom.id, key: keyBase64 } 
         });
 
-        // Add room to list (avoid duplicates)
+        // Add room to list (avoid duplicates) or update if exists
         const roomExists = state.rooms.some(r => (r.id || r._id) === newRoom.id);
         if (!roomExists) {
           dispatch({ type: 'SET_ROOMS', payload: [...state.rooms, newRoom] });
+        } else {
+          // Update existing room with latest data (including participants)
+          const updatedRooms = state.rooms.map(r => 
+            (r.id || r._id) === newRoom.id ? newRoom : r
+          );
+          dispatch({ type: 'SET_ROOMS', payload: updatedRooms });
         }
+        
+        // Save active room to localStorage for persistence across reloads
+        localStorage.setItem('activeRoom', newRoom.id);
         
         // Join the room
         joinRoom(newRoom.id);
@@ -345,8 +503,13 @@ export const ChatProvider = ({ children }) => {
 
       const data = await response.json();
       if (data.success) {
-        // Reload rooms to get updated participant list
-        await loadRooms();
+        // Reload rooms to get updated participant list (with throttling)
+        // Use setTimeout to debounce the reload
+        setTimeout(() => {
+          loadRooms().catch(err => {
+            console.error('Failed to reload rooms after adding participant:', err);
+          });
+        }, 500); // Small delay to avoid immediate reload
         return data.data;
       }
     } catch (error) {
@@ -402,13 +565,13 @@ export const ChatProvider = ({ children }) => {
       // Skip sending to API for mock/test room IDs
       const isMockRoom = !roomId || roomId.startsWith('dm-') || roomId.startsWith('room-');
       
-      // Get room key (now cached for performance)
+      // Get room key (cached for performance - very fast)
       const roomKey = await getRoomKey(roomId);
       
-      // Encrypt message (optimized)
+      // Encrypt message (optimized - Web Crypto API is hardware-accelerated, typically < 1ms)
       const encrypted = await CryptoUtils.encryptMessage(message, roomKey);
       
-      // Convert to base64 (synchronous operations, no need for Promise.all)
+      // Convert to base64 (synchronous operations, very fast)
       const encryptedBase64 = CryptoUtils.arrayBufferToBase64(encrypted.encrypted);
       const ivBase64 = CryptoUtils.arrayBufferToBase64(encrypted.iv);
       
@@ -439,8 +602,32 @@ export const ChatProvider = ({ children }) => {
         }
       };
 
-      // Send via WebSocket (if available)
+      let addedMessageId = null;
+
+      // Send via WebSocket (primary method - it saves to DB and broadcasts)
       if (socket && !isMockRoom && user) {
+        // Add optimistic update immediately for instant feedback
+        const tempMessageId = `temp-${Date.now()}-${Math.random()}`;
+        const optimisticMessage = {
+          id: tempMessageId,
+          roomId,
+          senderId: userId,
+          senderName: username,
+          content: message,
+          encryptedContent: encryptedBase64,
+          iv: ivBase64,
+          type: options.type || 'text',
+          timestamp: new Date().toISOString(),
+          isOptimistic: true, // Mark as optimistic
+          status: 'sending'
+        };
+
+        dispatch({ 
+          type: 'ADD_MESSAGE', 
+          roomId, 
+          payload: optimisticMessage 
+        });
+
         // Backend expects: { roomId, encryptedContent, iv, type, metadata }
         // Note: Backend will use socket.userId from authentication, so we don't need to send userId
         socket.emit('send-message', {
@@ -459,51 +646,77 @@ export const ChatProvider = ({ children }) => {
           }
         });
         console.log('Message sent via socket:', { roomId, userId });
-      }
-
-      // Only send to API for real rooms (not mock rooms)
-      if (!isMockRoom) {
-        try {
-          const response = await fetch(getApiUrl(`/api/chat/rooms/${roomId}/messages`), {
-            method: 'POST',
-            headers: getAuthHeaders(),
-            body: JSON.stringify(messageData)
-          });
-
-          if (!response.ok) {
-            const errorData = await response.json();
-            console.warn('Failed to save message to API:', errorData.message);
-          }
-        } catch (apiError) {
-          console.error('Failed to save message to API:', apiError);
-        }
+        
+        // The optimistic message will be replaced when WebSocket broadcasts the real message back
+        // Deduplication will handle this
       } else {
-        // Mock room - skip API call (expected behavior for test/mock rooms)
-        // Using debug instead of warn to reduce console noise
-        if (process.env.NODE_ENV === 'development') {
-          console.debug('Skipping API call for mock room:', roomId);
+        // Fallback to API if WebSocket is not available (for mock rooms or when socket is disconnected)
+        if (!isMockRoom) {
+          try {
+            const response = await fetch(getApiUrl(`/api/chat/rooms/${roomId}/messages`), {
+              method: 'POST',
+              headers: getAuthHeaders(),
+              body: JSON.stringify(messageData)
+            });
+
+            if (!response.ok) {
+              const errorData = await response.json();
+              console.warn('Failed to save message to API:', errorData.message);
+              throw new Error(errorData.message || 'Failed to send message');
+            }
+
+            const data = await response.json();
+            if (data.success && data.data) {
+              // Add the message from API response
+              const apiMessage = {
+                id: data.data._id || data.data.id || `msg-${Date.now()}`,
+                roomId,
+                senderId: userId,
+                senderName: username,
+                content: message,
+                encryptedContent: encryptedBase64,
+                iv: ivBase64,
+                type: options.type || 'text',
+                timestamp: data.data.createdAt || data.data.timestamp || new Date().toISOString(),
+                status: 'sent'
+              };
+
+              addedMessageId = apiMessage.id;
+
+              dispatch({ 
+                type: 'ADD_MESSAGE', 
+                roomId, 
+                payload: apiMessage 
+              });
+            }
+          } catch (apiError) {
+            console.error('Failed to save message to API:', apiError);
+            throw apiError;
+          }
+        } else {
+          // Mock room - add optimistic update only
+          const localMessage = {
+            id: `local-${Date.now()}`,
+            ...messageData,
+            content: message,
+            timestamp: new Date().toISOString(),
+            isLocal: true,
+            status: 'sent'
+          };
+
+          addedMessageId = localMessage.id;
+
+          dispatch({ 
+            type: 'ADD_MESSAGE', 
+            roomId, 
+            payload: localMessage 
+          });
         }
       }
 
-      // Optimistic update
-      const localMessage = {
-        id: `local-${Date.now()}`,
-        ...messageData,
-        content: message,
-        timestamp: new Date().toISOString(),
-        isLocal: true,
-        status: 'sent'
-      };
-
-      dispatch({ 
-        type: 'ADD_MESSAGE', 
-        roomId, 
-        payload: localMessage 
-      });
-
-      if (options.selfDestruct) {
+      if (options.selfDestruct && addedMessageId) {
         setTimeout(() => {
-          dispatch({ type: 'REMOVE_MESSAGE', roomId, messageId: localMessage.id });
+          dispatch({ type: 'REMOVE_MESSAGE', roomId, messageId: addedMessageId });
         }, options.selfDestruct * 1000);
       }
 
@@ -592,11 +805,27 @@ export const ChatProvider = ({ children }) => {
     }
   };
 
-  const loadRooms = async () => {
+  const loadRooms = async (retryCount = 0) => {
     try {
+      // Throttle: prevent too frequent calls
+      const now = Date.now();
+      if (now - lastLoadTimeRef.current < LOAD_ROOMS_THROTTLE_MS && retryCount === 0) {
+        console.log('Throttling loadRooms - too soon since last call');
+        return;
+      }
+
+      if (isLoadingRoomsRef.current && retryCount === 0) {
+        console.log('loadRooms already in progress, skipping');
+        return;
+      }
+
+      isLoadingRoomsRef.current = true;
+      lastLoadTimeRef.current = now;
+
       const token = localStorage.getItem('token');
       if (!token) {
         console.error('No authentication token available');
+        isLoadingRoomsRef.current = false;
         return;
       }
 
@@ -615,23 +844,42 @@ export const ChatProvider = ({ children }) => {
         if (window.location.pathname !== '/login') {
           window.location.href = '/login';
         }
+        isLoadingRoomsRef.current = false;
         return;
+      }
+      
+      // Handle rate limiting (429) with exponential backoff retry
+      if (response.status === 429) {
+        isLoadingRoomsRef.current = false;
+        if (retryCount < 3) {
+          const backoffDelay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
+          console.warn(`Rate limited. Retrying in ${backoffDelay}ms... (attempt ${retryCount + 1}/3)`);
+          await new Promise(resolve => setTimeout(resolve, backoffDelay));
+          return loadRooms(retryCount + 1);
+        } else {
+          throw new Error('Too many requests, please try again later');
+        }
       }
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        isLoadingRoomsRef.current = false;
         throw new Error(errorData.message || `Failed to load rooms: ${response.status}`);
       }
       
       const data = await response.json();
       if (data.success && data.data.rooms) {
-        // Normalize room IDs (handle both _id and id)
+        // Normalize room IDs (handle both _id and id) and ensure participants are included
         const normalizedRooms = data.data.rooms.map(room => ({
           ...room,
           id: room.id || room._id,
           name: room.name || 'Unnamed Room',
           type: room.type || 'direct',
-          participants: room.participants || []
+          participants: room.participants || [],
+          // Ensure all room data is preserved
+          createdAt: room.createdAt,
+          admin: room.admin,
+          encryptionEnabled: room.encryptionEnabled !== undefined ? room.encryptionEnabled : true
         }));
         
         dispatch({ type: 'SET_ROOMS', payload: normalizedRooms });
@@ -646,27 +894,74 @@ export const ChatProvider = ({ children }) => {
             });
           }
         });
+        
+        // Return normalized rooms for use in the promise chain
+        return normalizedRooms;
       }
+      isLoadingRoomsRef.current = false;
+      return [];
     } catch (error) {
       console.error('Failed to load rooms:', error);
+      isLoadingRoomsRef.current = false;
+      return [];
     }
   };
 
-  // Track if initial load has been done to prevent duplicate loads
-  const hasLoadedRef = useRef(false);
+  // Track loading state (reset on unmount to allow reload on next mount)
+  const isLoadingRoomsRef = useRef(false);
+  const lastLoadTimeRef = useRef(0);
+  const LOAD_ROOMS_THROTTLE_MS = 2000; // Minimum 2 seconds between loads
 
-  // Load rooms and restore active room on mount
+  // Load rooms and restore active room on mount/reload
   useEffect(() => {
-    if (user && isAuthenticated && !hasLoadedRef.current) {
-      hasLoadedRef.current = true;
-      loadRooms().then(() => {
-        // Restore active room from localStorage
+    if (user && isAuthenticated) {
+      const now = Date.now();
+      // Throttle: only load if enough time has passed since last load
+      if (now - lastLoadTimeRef.current < LOAD_ROOMS_THROTTLE_MS) {
+        // If too soon, still restore active room from localStorage
         const savedActiveRoom = localStorage.getItem('activeRoom');
-        if (savedActiveRoom) {
+        if (savedActiveRoom && savedActiveRoom !== state.activeRoom) {
           dispatch({ type: 'SET_ACTIVE_ROOM', payload: savedActiveRoom });
         }
+        return;
+      }
+      lastLoadTimeRef.current = now;
+      
+      if (isLoadingRoomsRef.current) {
+        return; // Already loading, skip
+      }
+      
+      isLoadingRoomsRef.current = true;
+      loadRooms().then((loadedRooms) => {
+        // Restore active room from localStorage after rooms are loaded
+        const savedActiveRoom = localStorage.getItem('activeRoom');
+        if (savedActiveRoom) {
+          // Use the loaded rooms from the function result or current state
+          const currentRooms = loadedRooms || state.rooms;
+          // Verify the room exists in loaded rooms before setting as active
+          const roomExists = currentRooms && currentRooms.some(r => (r.id || r._id) === savedActiveRoom);
+          if (roomExists) {
+            dispatch({ type: 'SET_ACTIVE_ROOM', payload: savedActiveRoom });
+            // Load messages for the restored room
+            if (!savedActiveRoom.startsWith('dm-') && !savedActiveRoom.startsWith('room-')) {
+              loadMessages(savedActiveRoom).catch(err => {
+                console.error('Failed to load messages for restored room:', err);
+              });
+            }
+          } else {
+            // Room doesn't exist, clear it from localStorage
+            localStorage.removeItem('activeRoom');
+          }
+        }
+      }).finally(() => {
+        isLoadingRoomsRef.current = false;
       });
     }
+    
+    // Cleanup: reset loading state on unmount to allow reload on next mount
+    return () => {
+      // Don't reset isLoadingRoomsRef here as it might be in progress
+    };
   }, [user, isAuthenticated]);
 
   // Save active room to localStorage and load messages when it changes
@@ -790,7 +1085,11 @@ export const ChatProvider = ({ children }) => {
                 content: decrypted,
                 senderId: msg.senderId?._id || msg.senderId,
                 senderName: msg.senderUsername || msg.senderName || 'Unknown',
-                timestamp: msg.createdAt || msg.timestamp || new Date().toISOString()
+                timestamp: msg.createdAt || msg.timestamp || new Date().toISOString(),
+                readBy: msg.readBy || [], // Include readBy information for read receipts
+                type: msg.messageType || msg.type || 'text',
+                fileMetadata: msg.fileMetadata,
+                selfDestruct: msg.selfDestruct
               };
             } catch (error) {
               console.error('Failed to decrypt message:', error);
@@ -824,6 +1123,70 @@ export const ChatProvider = ({ children }) => {
     }
   };
 
+  // Mark message as read
+  const markMessageAsRead = async (messageId) => {
+    try {
+      // Skip for mock/test messages
+      if (!messageId || messageId.startsWith('local-') || messageId.startsWith('temp-')) {
+        return;
+      }
+
+      const response = await fetch(getApiUrl(`/api/chat/messages/${messageId}/read`), {
+        method: 'PUT',
+        headers: getAuthHeaders()
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to mark message as read');
+      }
+
+      const data = await response.json();
+      if (data.success) {
+        // Update message read status in state
+        const roomId = Object.keys(state.messages).find(rid => 
+          state.messages[rid]?.some(msg => msg.id === messageId)
+        );
+        
+        if (roomId) {
+          const updatedMessages = state.messages[roomId].map(msg => {
+            if (msg.id === messageId) {
+              const userId = user?.id || user?._id || user?.userId;
+              const isAlreadyRead = msg.readBy?.some(read => 
+                (read.userId?.toString() === userId?.toString())
+              );
+              
+              if (!isAlreadyRead) {
+                return {
+                  ...msg,
+                  readBy: [
+                    ...(msg.readBy || []),
+                    { userId, readAt: new Date() }
+                  ]
+                };
+              }
+            }
+            return msg;
+          });
+          
+          dispatch({ 
+            type: 'SET_MESSAGES', 
+            roomId, 
+            payload: updatedMessages 
+          });
+        }
+
+        // Emit socket event to notify others
+        if (socket && user) {
+          socket.emit('mark-message-read', { messageId });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to mark message as read:', error);
+      throw error;
+    }
+  };
+
   return (
     <ChatContext.Provider value={{
       ...state,
@@ -833,6 +1196,7 @@ export const ChatProvider = ({ children }) => {
       createRoom,
       loadRooms,
       loadMessages,
+      markMessageAsRead,
       isConnected
     }}>
       {children}

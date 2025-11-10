@@ -17,51 +17,130 @@ const CreateRoom = ({ onClose }) => {
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [searchError, setSearchError] = useState(null);
   const searchTimeoutRef = useRef(null);
+  const abortControllerRef = useRef(null);
+  const lastSearchTimeRef = useRef(0);
+  const isSearchInProgressRef = useRef(false);
   const { createRoom } = useChat();
   const { user, token } = useAuth();
 
-  // Search users with debounce
+  // Search users with improved debounce and rate limiting
   useEffect(() => {
+    // Clear previous timeout
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
 
-    if (searchQuery.trim().length < 2) {
+    // Cancel previous request if still in progress
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    // Clear results if query is too short (require at least 3 characters)
+    if (searchQuery.trim().length < 3) {
       setSearchResults([]);
+      setSearchError(null);
+      setIsSearching(false);
       return;
     }
 
-    setIsSearching(true);
-    searchTimeoutRef.current = setTimeout(async () => {
-      try {
-        const authToken = token || localStorage.getItem('token');
-        const response = await fetch(
-          getApiUrl(`/api/auth/search-users?query=${encodeURIComponent(searchQuery.trim())}`),
-          {
-            headers: {
-              'Authorization': `Bearer ${authToken}`
-            }
-          }
-        );
+    // Throttle: minimum 1500ms (1.5 seconds) between searches to avoid rate limits
+    const now = Date.now();
+    const timeSinceLastSearch = now - lastSearchTimeRef.current;
+    const MIN_SEARCH_INTERVAL = 1500; // 1.5 seconds minimum
+    const debounceDelay = timeSinceLastSearch < MIN_SEARCH_INTERVAL 
+      ? MIN_SEARCH_INTERVAL - timeSinceLastSearch 
+      : 800; // Base debounce of 800ms
 
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success) {
-            // Filter out already selected users
-            const filtered = data.data.users.filter(
-              u => !selectedUsers.find(su => su.id === u.id) && u.id !== user?.id
-            );
-            setSearchResults(filtered);
+    setIsSearching(true);
+    setSearchError(null);
+    
+    searchTimeoutRef.current = setTimeout(async () => {
+      // Prevent concurrent searches
+      if (isSearchInProgressRef.current) {
+        setIsSearching(false);
+        return;
+      }
+
+      isSearchInProgressRef.current = true;
+      lastSearchTimeRef.current = Date.now();
+
+      // Create new abort controller for this request
+      abortControllerRef.current = new AbortController();
+
+      const searchWithRetry = async (retryCount = 0) => {
+        try {
+          const authToken = token || localStorage.getItem('token');
+          const response = await fetch(
+            getApiUrl(`/api/auth/search-users?query=${encodeURIComponent(searchQuery.trim())}`),
+            {
+              headers: {
+                'Authorization': `Bearer ${authToken}`
+              },
+              signal: abortControllerRef.current.signal
+            }
+          );
+
+          // Handle rate limiting - don't retry immediately, just show error
+          if (response.status === 429) {
+            const errorData = await response.json().catch(() => ({}));
+            const retryAfter = response.headers.get('Retry-After');
+            const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : 5000; // Default 5 seconds
+            
+            setSearchError(`Too many search requests. Please wait ${Math.ceil(waitTime / 1000)} seconds before searching again.`);
+            setSearchResults([]);
+            setIsSearching(false);
+            isSearchInProgressRef.current = false;
+            
+            // Block further searches for the wait time
+            lastSearchTimeRef.current = Date.now() + waitTime;
+            return;
+          }
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+              // Filter out already selected users
+              const filtered = data.data.users.filter(
+                u => !selectedUsers.find(su => su.id === u.id) && u.id !== user?.id
+              );
+              setSearchResults(filtered);
+              setSearchError(null);
+            }
+          } else if (response.status !== 429) {
+            // Handle other errors (but not rate limiting)
+            setSearchError('Failed to search users. Please try again.');
+            setSearchResults([]);
+          }
+        } catch (error) {
+          // Ignore abort errors (user typed new query)
+          if (error.name === 'AbortError') {
+            return;
+          }
+          console.error('User search failed:', error);
+          setSearchError('Search failed. Please try again.');
+          setSearchResults([]);
+        } finally {
+          if (!abortControllerRef.current?.signal.aborted) {
+            setIsSearching(false);
+            isSearchInProgressRef.current = false;
           }
         }
-      } catch (error) {
-        console.error('User search failed:', error);
-        setSearchResults([]);
-      } finally {
-        setIsSearching(false);
+      };
+
+      await searchWithRetry();
+    }, debounceDelay);
+
+    // Cleanup function
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
       }
-    }, 300);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, [searchQuery, selectedUsers, user, token]);
 
   const handleCreateRoom = async () => {
@@ -128,11 +207,11 @@ const CreateRoom = ({ onClose }) => {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by username or email..."
+                placeholder="Search by username or email (min 3 chars)..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
-                disabled={isCreating}
+                disabled={isCreating || isSearching}
               />
               {isSearching && (
                 <Loader2 className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
@@ -172,7 +251,7 @@ const CreateRoom = ({ onClose }) => {
           )}
 
           {/* Search Results */}
-          {searchQuery.trim().length >= 2 && searchResults.length > 0 && (
+          {searchQuery.trim().length >= 3 && searchResults.length > 0 && (
             <div className="space-y-2">
               <label className="text-sm font-medium">Search Results</label>
               <ScrollArea className="h-48 border rounded-md">
@@ -211,9 +290,21 @@ const CreateRoom = ({ onClose }) => {
             </div>
           )}
 
-          {searchQuery.trim().length >= 2 && !isSearching && searchResults.length === 0 && (
+          {searchQuery.trim().length >= 3 && !isSearching && searchResults.length === 0 && !searchError && (
             <div className="text-center py-4 text-sm text-muted-foreground">
               No users found
+            </div>
+          )}
+
+          {searchQuery.trim().length > 0 && searchQuery.trim().length < 3 && (
+            <div className="text-center py-4 text-sm text-muted-foreground">
+              Type at least 3 characters to search
+            </div>
+          )}
+
+          {searchError && (
+            <div className="text-center py-4 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
+              {searchError}
             </div>
           )}
 

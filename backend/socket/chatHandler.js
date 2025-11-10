@@ -213,6 +213,47 @@ export const chatHandler = (io, socket) => {
     });
   });
 
+  // Mark message as read
+  socket.on('mark-message-read', async ({ messageId }) => {
+    try {
+      const userId = socket.userId;
+      if (!userId || !messageId) {
+        socket.emit('error', { message: 'Invalid request' });
+        return;
+      }
+
+      const message = await Message.findById(messageId);
+      if (!message) {
+        socket.emit('error', { message: 'Message not found' });
+        return;
+      }
+
+      // Verify user is in the room
+      const room = await Room.findOne({
+        _id: message.roomId,
+        'participants.userId': userId
+      });
+
+      if (!room) {
+        socket.emit('error', { message: 'Access denied' });
+        return;
+      }
+
+      // Mark as read
+      await message.markAsRead(userId);
+
+      // Broadcast read status to room (so sender can see it was read)
+      io.to(message.roomId.toString()).emit('message-read', {
+        messageId: message._id.toString(),
+        userId: userId.toString(),
+        readAt: new Date()
+      });
+    } catch (error) {
+      console.error('Error marking message as read:', error);
+      socket.emit('error', { message: error.message });
+    }
+  });
+
   // Screenshot detection handler
   socket.on('screenshot-detected', async ({ roomId, threatType, timestamp }) => {
     try {

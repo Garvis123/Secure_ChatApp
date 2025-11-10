@@ -18,6 +18,7 @@ const MessageInput = ({ roomId, onFileUpload }) => {
   const [message, setMessage] = useState('');
   const [selfDestruct, setSelfDestruct] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
+  const [isSending, setIsSending] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const inputRef = useRef(null);
   const { sendMessage, setTyping } = useChat();
@@ -26,9 +27,10 @@ const MessageInput = ({ roomId, onFileUpload }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (!message.trim()) return;
+    if (!message.trim() || isSending) return;
 
     try {
+      setIsSending(true);
       await sendMessage(roomId, message.trim(), {
         type: 'text',
         selfDestruct: selfDestruct
@@ -40,6 +42,8 @@ const MessageInput = ({ roomId, onFileUpload }) => {
       setTyping(roomId, false);
     } catch (error) {
       console.error('Failed to send message:', error);
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -175,14 +179,15 @@ const MessageInput = ({ roomId, onFileUpload }) => {
             placeholder="Type your encrypted message..."
             className="pr-4 bg-muted/50 border-border/50"
             autoFocus
+            disabled={isSending}
           />
           
-          {/* Typing indicator */}
-          {isTyping && (
+          {/* Sending indicator - only shows during actual encryption/send */}
+          {isSending && (
             <div className="absolute -top-6 left-0 text-xs text-muted-foreground">
               <div className="flex items-center space-x-1">
                 <div className="h-1 w-1 rounded-full bg-accent animate-pulse"></div>
-                <span>Encrypting...</span>
+                <span>Sending...</span>
               </div>
             </div>
           )}
@@ -190,7 +195,7 @@ const MessageInput = ({ roomId, onFileUpload }) => {
 
         <Button 
           type="submit" 
-          disabled={!message.trim()}
+          disabled={!message.trim() || isSending}
           className="security-glow"
         >
           <Send className="h-4 w-4" />

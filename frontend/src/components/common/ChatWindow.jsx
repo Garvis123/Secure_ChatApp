@@ -145,7 +145,9 @@ const ChatWindow = ({ roomId }) => {
               <MessageBox
                 key={message.id}
                 message={message}
-                isOwn={message.senderId === user?.id}
+                isOwn={(message.senderId?.toString() === user?.id?.toString()) || 
+                       (message.senderId?.toString() === user?._id?.toString()) ||
+                       (message.senderId?.toString() === user?.userId?.toString())}
               />
             ))
           )}

@@ -4,6 +4,7 @@ import User from '../models/User.js';
 import mongoose from 'mongoose';
 import { detectAnomaly } from '../utils/anomalyDetection.js';
 import { verifySignature } from '../utils/crypto.js';
+import { getSocketInstance } from '../config/socket.js';
 
 // Create new room
 export const createRoom = async (req, res) => {
@@ -83,6 +84,37 @@ export const createRoom = async (req, res) => {
       { _id: { $in: participantIds.concat(userId) } },
       { $push: { rooms: room._id } }
     );
+
+    // Emit real-time room-created event to all participants (except creator)
+    try {
+      const io = getSocketInstance();
+      if (io) {
+        const creator = await User.findById(userId);
+        const roomData = {
+          roomId: room._id.toString(),
+          roomName: room.name,
+          roomType: room.type,
+          creatorId: userId.toString(),
+          creatorName: creator?.username || 'Unknown',
+          participants: room.participants.map(p => ({
+            userId: p.userId.toString(),
+            username: p.username
+          })),
+          createdAt: room.createdAt,
+          encryptionEnabled: room.encryptionEnabled
+        };
+
+        // Notify all participants (they will receive it in their personal room)
+        participantIds.forEach(participantId => {
+          if (participantId.toString() !== userId.toString()) {
+            io.to(participantId.toString()).emit('room-created', roomData);
+          }
+        });
+      }
+    } catch (socketError) {
+      console.error('Error emitting room-created event:', socketError);
+      // Don't fail the request if socket emission fails
+    }
 
     res.status(201).json({
       success: true,
@@ -608,6 +640,21 @@ export const markMessageAsRead = async (req, res) => {
     }
 
     await message.markAsRead(userId);
+
+    // Emit real-time read status update via WebSocket
+    try {
+      const io = getSocketInstance();
+      if (io) {
+        io.to(message.roomId.toString()).emit('message-read', {
+          messageId: message._id.toString(),
+          userId: userId.toString(),
+          readAt: new Date()
+        });
+      }
+    } catch (socketError) {
+      console.error('Error emitting message-read event:', socketError);
+      // Don't fail the request if socket emission fails
+    }
 
     res.json({
       success: true,
